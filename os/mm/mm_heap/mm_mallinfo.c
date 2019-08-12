@@ -58,7 +58,9 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <debug.h>
+#include <unistd.h>
 #include <tinyara/mm/mm.h>
+#include <tinyara/sched.h>
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -74,7 +76,6 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
-
 /****************************************************************************
  * Name: mm_mallinfo
  *
@@ -136,10 +137,18 @@ int mm_mallinfo(FAR struct mm_heap_s *heap, FAR struct mallinfo *info)
 
 	DEBUGASSERT(uordblks + fordblks == heap->mm_heapsize);
 
+#if CONFIG_MM_NHEAPS > 1
+	info->arena    += heap->mm_heapsize;
+	info->ordblks  += ordblks;
+	info->mxordblk += mxordblk;
+	info->uordblks += uordblks;
+	info->fordblks += fordblks;
+#else
 	info->arena    = heap->mm_heapsize;
 	info->ordblks  = ordblks;
 	info->mxordblk = mxordblk;
 	info->uordblks = uordblks;
 	info->fordblks = fordblks;
+#endif
 	return OK;
 }

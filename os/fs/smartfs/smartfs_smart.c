@@ -454,6 +454,7 @@ static int smartfs_close(FAR struct file *filep)
 #endif
 
 	kmm_free(sf);
+	filep->f_priv = NULL;
 
 okout:
 	smartfs_semgive(fs);
@@ -596,7 +597,7 @@ static int smartfs_sync_internal(struct smartfs_mountpt_s *fs, struct smartfs_of
 	int used_value;
 #endif
 
-#ifdef CONFIG_SMARTFS_JOURNALING
+#if defined(CONFIG_SMARTFS_JOURNALING) && !defined(CONFIG_SMARTFS_USE_SECTOR_BUFFER)
 	int retj;
 	uint16_t used_bytes;
 	uint16_t t_sector, t_offset;
@@ -1063,7 +1064,6 @@ static off_t smartfs_seek_internal(struct smartfs_mountpt_s *fs, struct smartfs_
 
 	switch (whence) {
 	case SEEK_SET:
-	default:
 		newpos = offset;
 		break;
 
@@ -1074,6 +1074,8 @@ static off_t smartfs_seek_internal(struct smartfs_mountpt_s *fs, struct smartfs_
 	case SEEK_END:
 		newpos = sf->entry.datlen + offset;
 		break;
+	default:
+		return -EINVAL;
 	}
 
 	/* Ensure newpos is in range */

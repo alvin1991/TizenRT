@@ -62,6 +62,9 @@
 #include <tinyara/fs/fs.h>
 #include <tinyara/syslog/ramlog.h>
 #include <tinyara/syslog/syslog_console.h>
+#if defined(CONFIG_BLUETOOTH) && defined(CONFIG_BLUETOOTH_NULL)
+#include <tinyara/bluetooth/bt_null.h>
+#endif
 
 #include <arch/board/board.h>
 
@@ -166,10 +169,6 @@ void up_initialize(void)
 
 	up_color_intstack();
 
-	/* Add any extra memory fragments to the memory manager */
-
-	up_addregion();
-
 	/* Initialize the interrupt subsystem */
 
 	up_irqinitialize();
@@ -210,6 +209,14 @@ void up_initialize(void)
 
 #if defined(CONFIG_DEV_NULL)
 	devnull_register();			/* Standard /dev/null */
+#endif
+
+#if defined(CONFIG_BLUETOOTH) && defined(CONFIG_BLUETOOTH_NULL)
+	btnull_register();    /* bluetooth bt_null */
+#endif
+
+#ifdef CONFIG_DEV_URANDOM
+	devurandom_register();			/* /dev/urandom */
 #endif
 
 #if defined(CONFIG_DEV_ZERO)
@@ -255,6 +262,11 @@ void up_initialize(void)
 	/* Initialize the Telnet session factory */
 
 	(void)telnet_initialize();
+#endif
+
+#ifdef CONFIG_ERROR_REPORT
+	/* Initialize Error Reporting for network */
+	error_report_init();
 #endif
 	/* Initialize the network */
 

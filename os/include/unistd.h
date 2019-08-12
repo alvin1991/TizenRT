@@ -74,12 +74,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* The number of functions that may be registered to be called
- * at program exit.
- */
-
-#define ATEXIT_MAX 1
-
 /* Values for seeking */
 
 #define SEEK_SET    0			/* From the start of the file */
@@ -157,6 +151,8 @@ EXTERN int optopt;				/* unrecognized option character */
 /* Task Control Interfaces */
 
 /**
+ * @cond
+ * @internal
  * @ingroup UNISTD_KERNEL
  * @brief The vfork() function has the same effect as fork(), except that the behavior is
  *   undefined if the process created by vfork() either modifies any data other than
@@ -193,6 +189,9 @@ EXTERN int optopt;				/* unrecognized option character */
  */
 pid_t vfork(void);
 /**
+ * @endcond
+ */
+/**
  * @ingroup UNISTD_KERNEL
  * @brief get the process ID
  * @details @b #include <unistd.h> \n
@@ -200,6 +199,16 @@ pid_t vfork(void);
  * @since TizenRT v1.0
  */
 pid_t getpid(void);
+
+/* Check if a file descriptor corresponds to a terminal I/O file */
+/**
+ * @ingroup UNISTD_KERNEL
+ * @brief test for a terminal device
+ * @details @b #include <unistd.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v2.1 PRE
+ */
+int isatty(int fd);
 /**
  * @cond
  * @internal

@@ -16,11 +16,16 @@
  *
  ******************************************************************/
 
+#ifndef __MEDIA_DECODER_H
+#define __MEDIA_DECODER_H
+
 #include <tinyara/config.h>
 #include <stdio.h>
+#include <memory>
+#include <media/MediaTypes.h>
 
 #ifdef CONFIG_AUDIO_CODEC
-#include <audiocodec/streaming/player.h>
+#include "codec/audio_decoder.h"
 #endif
 
 namespace media {
@@ -28,11 +33,12 @@ namespace media {
 class Decoder
 {
 public:
-	Decoder();
-	Decoder(const Decoder *source);
+	Decoder(audio_type_t audioType, unsigned short channels, unsigned int sampleRate);
 	~Decoder();
 
 public:
+	static std::shared_ptr<Decoder> create(audio_type_t audioType, unsigned short channels, unsigned int sampleRate);
+	bool init(void);
 	size_t pushData(unsigned char *buf, size_t size);
 	bool getFrame(unsigned char *buf, size_t *size, unsigned int *sampleRate, unsigned short *channels);
 	bool empty();
@@ -40,8 +46,19 @@ public:
 
 private:
 #ifdef CONFIG_AUDIO_CODEC
-	static int _configFunc(void *user_data, int audio_type, void *dec_ext);
-	pv_player_t mPlayer;
+	bool mConfig(int audioType);
+	audio_decoder_t mDecoder;
+	/* Coding format type of the input audio data. */
+	audio_type_t mAudioType;
+	/* Number of channels user desired for output PCM data.
+	 * TizenRT Media Framework supports only mono and stereo audio playback.
+	 * So for multiple channel audio playback, decoder can be asked to output PCM data in stereo layout forcely.
+	 */
+	unsigned short mChannels;
+	/* Sample rate of the input audio data. */
+	unsigned int mSampleRate;
 #endif
 };
 } // namespace media
+
+#endif

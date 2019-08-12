@@ -69,7 +69,7 @@ typedef struct st_device_s {
 	int no;
 	char *type;
 	char *name;
-	char *manufacturer_name;
+	char *mnid;
 	char *manufacturer_url;
 	char *manufacturing_date;
 	char *model_num;
@@ -78,7 +78,7 @@ typedef struct st_device_s {
 	char *ver_hw;	// mnhw
 	char *ver_fw;	// mnfv
 	char *device_id;	// mnfv
-	char *vender_id;	// mnfv
+	char *vid;	// mnfv
 #ifdef CONFIG_ST_THINGS_COLLECTION
 	col_resource_s *collection;
 #endif
@@ -102,20 +102,15 @@ const char *dm_get_svrdb_file_path(void);
 const char *dm_get_certificate_file_path(void);
 const char *dm_get_privatekey_file_path(void);
 const char *dm_get_filename(int filenum);
-const char *dm_get_things_device_type(int device_id);
+const char *dm_get_things_device_type(const char* device_id);
 const char *dm_get_things_cloud_address(char *customized_ci_server);
 
 const int dm_get_file_id(int filenum);
 const int dm_get_num_of_files(void);
-const int dm_get_wifi_property_interface();
-const int dm_get_ownership_transfer_method();
-const wifi_freq_e dm_get_wifi_property_freq();
+const int dm_get_wifi_property_interface(void);
+const int dm_get_ownership_transfer_method(void);
+const wifi_freq_e dm_get_wifi_property_freq(void);
 
-struct things_resource_s *dm_get_resource_instance(const char *uri, const int id);
-
-int dm_get_device_information(int *cnt, st_device_s ***list);
-
-long dm_get_num_of_dev_cnt(void);
 st_device_s *dm_get_info_of_dev(unsigned long number);
 bool dm_register_user_define_device_id(const int seq_thing_info, const char *dev_id);
 bool dm_register_device_id(void);
@@ -132,11 +127,31 @@ bool dm_is_es_complete(void);
 bool dm_get_easy_setup_use_artik_crt(void);
 char *dm_get_mnid(void);
 
-int dm_validate_attribute_in_request(char *res_type, const void *payload);
+/**
+ * Return access token received from cloud.
+ *
+ * Internally loads the cloud information stored in persistent storage,
+ * retrieves access token from it and returns the copy of the same.
 
-char *dm_get_firmware_version();
-char *dm_get_vendor_id();
-char *dm_get_model_number();
+ * Note: Memory allocated for return parameter should be released by the caller.
+ */
+char *dm_get_access_token(void);
+
+/**
+ * Return uid received from cloud.
+ *
+ * Internally loads the cloud information stored in persistent storage,
+ * retrieves access token from it and returns the copy of the same.
+
+ * Note: Memory allocated for return parameter should be released by the caller.
+ */
+char *dm_get_uid(void);
+
+int dm_validate_attribute_in_request(const char *res_type, const void *payload);
+
+char *dm_get_firmware_version(void);
+char *dm_get_vendor_id(void);
+char *dm_get_model_number(void);
 char *get_json_string_from_file(const char *filename);
 int set_json_string_into_file(const char *filename, const char *json_str);
 typedef enum {
@@ -147,6 +162,6 @@ typedef enum {
 
 easysetup_connectivity_type_e dm_get_easysetup_connectivity_type(void);
 wifi_manager_softap_config_s *dm_get_softap_wifi_config(void);
-wifi_manager_ap_config_s *dm_get_homeap_wifi_config();
+wifi_manager_ap_config_s *dm_get_homeap_wifi_config(void);
 
 #endif							// _THINGS_DATA_MANAGER_H_

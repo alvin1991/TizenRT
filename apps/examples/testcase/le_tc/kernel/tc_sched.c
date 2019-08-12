@@ -16,7 +16,8 @@
  *
  ****************************************************************************/
 
-/// @file sched.c
+/// @file tc_sched.c
+
 /// @brief Test Case Example for Sched API
 
 /****************************************************************************
@@ -25,22 +26,24 @@
 #include <tinyara/config.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sched.h>
+#include <pthread.h>
 #include <errno.h>
 #include <sys/wait.h>
 #include <sys/types.h>
-#include "../../../../../os/kernel/sched/sched.h"
+#include <sys/ioctl.h>
+#include <tinyara/sched.h>
+#include <tinyara/testcase_drv.h>
+
 #include "tc_internal.h"
 
-#define USECVAL         1000000
 #define SCHED_PRIORITY  13
-#define SLEEPVAL        10000
-#define SEC_2           2
 #define LOOPCOUNT       2
 #define ARRLEN          2
 #define VAL_3           3
 #define VAL_5           5
-#define TASK_STACKSIZE 2048
-#define PID_INVAL       -1
+#define TASK_STACKSIZE  2048
+#define INVALID_PID     -2
 #define PID_IDLE        0
 #define TASK_CANCEL_INVALID  -1
 
@@ -63,55 +66,23 @@ static void sched_foreach_callback(struct tcb_s *tcb, void *arg)
 	}
 }
 
-/**
-* @fn                   :function_wait
-* @description          :Function for tc_sched_wait
-* @return               :int
-*/
-static int function_wait(int argc, char *argv[])
+#ifdef CONFIG_SCHED_WAITPID
+static int sleep1sec_taskdel(int argc, char *argv[])
 {
-	usleep(USECVAL);
+	sleep(1);
 	task_delete(0);
 	return 0;
 }
 
-#if defined(CONFIG_SCHED_WAITPID) && defined(CONFIG_SCHED_HAVE_PARENT)
-/**
-* @fn                   :function_waitlong
-* @description          :Function for tc_sched_wait
-* @return               :int
-*/
-static int function_waitlong(int argc, char *argv[])
+#ifdef CONFIG_SCHED_HAVE_PARENT
+static int sleep2sec_taskdel(int argc, char *argv[])
 {
-	sleep(SEC_2);
+	sleep(2);
 	task_delete(0);
 	return 0;
 }
-
-/**
-* @fn                   :function_waitid
-* @description          :Function for tc_sched_waitid
-* @return               :int
-*/
-static int function_waitid(int argc, char *argv[])
-{
-	usleep(SLEEPVAL);
-	task_delete(0);
-	return 0;
-}
-
-/**
-* @fn                   :function_waitid_2
-* @description          :Function for tc_sched_waitid
-* @return               :int
-*/
-static int function_waitid_2(int argc, char *argv[])
-{
-	usleep(SLEEPVAL);
-	task_delete(0);
-	return 0;
-}
-#endif
+#endif /* CONFIG_SCHED_HAVE_PARENT */
+#endif /* CONFIG_SCHED_WAITPID */
 
 /**
 * @fn                   :threadfunc_callback
@@ -288,14 +259,14 @@ static void tc_sched_wait(void)
 	int status;
 
 	/* creating new process */
-	child1_pid = task_create("sched1", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, function_wait, (char * const *)NULL);
+	child1_pid = task_create("sched1", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, sleep1sec_taskdel, (char * const *)NULL);
 	TC_ASSERT_GT("task_create", child1_pid, 0);
 
-	child2_pid = task_create("sched2", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, function_waitlong, (char * const *)NULL);
+	child2_pid = task_create("sched2", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, sleep2sec_taskdel, (char * const *)NULL);
 	TC_ASSERT_GT("task_create", child2_pid, 0);
 
 	/* child which exits first is handled by wait, here child1_pid exits earlier. */
-	usleep(SLEEPVAL);
+	sleep(1);
 
 	/* wait for child to exit, and store child's exit status */
 	ret_chk = wait(&status);
@@ -303,7 +274,7 @@ static void tc_sched_wait(void)
 	TC_ASSERT_EQ("wait", (child1_pid == (pid_t)ret_chk || child2_pid == (pid_t)ret_chk), true);
 
 	/* wait for second child to exit */
-	sleep(SEC_2);
+	sleep(2);
 	TC_SUCCESS_RESULT();
 }
 
@@ -320,58 +291,47 @@ static void tc_sched_wait(void)
 static void tc_sched_waitid(void)
 {
 	int ret_chk;
-	pid_t child_pid;
-	pid_t child_ppid;
+	pid_t child1_pid;
+	pid_t child2_pid;
 	siginfo_t info;
 
 	/* Check for The TCB corresponding to this PID is not our child. */
 
-	ret_chk = waitid(P_GID, 0, &info, WEXITED);
+	ret_chk = waitid(P_PID, 0, &info, WEXITED);
 	TC_ASSERT_EQ("waitid", ret_chk, ERROR);
 	TC_ASSERT_EQ("waitid", errno, ECHILD);
 
-	child_pid = task_create("tc_waitid", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, function_waitid, (char * const *)NULL);
-	TC_ASSERT_GT("task_create", child_pid, 0);
+	child1_pid = task_create("tc_waitid", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, sleep1sec_taskdel, (char * const *)NULL);
+	TC_ASSERT_GT("task_create", child1_pid, 0);
 
 	/* Check for P_PID type */
 
-	ret_chk = waitid(P_PID, child_pid, &info, WEXITED);
+	ret_chk = waitid(P_PID, child1_pid, &info, WEXITED);
 	TC_ASSERT_NEQ("waitid", ret_chk, ERROR);
-	TC_ASSERT_EQ("waitid", info.si_pid, child_pid);
+	TC_ASSERT_EQ("waitid", info.si_pid, child1_pid);
 
 	/* Check for P_ALL ID type */
 
-	child_pid = task_create("tc_waitid", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, function_waitid, (char * const *)NULL);
-	TC_ASSERT_GT("task_create", child_pid, 0);
+	child2_pid = task_create("tc_waitid", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, sleep1sec_taskdel, (char * const *)NULL);
+	TC_ASSERT_GT("task_create", child2_pid, 0);
 
-	ret_chk = waitid(P_ALL, child_pid, &info, WEXITED);
+	ret_chk = waitid(P_ALL, child2_pid, &info, WEXITED);
 	TC_ASSERT_NEQ("waitid", ret_chk, ERROR);
-	TC_ASSERT_EQ("waitid", info.si_pid, child_pid);
+	TC_ASSERT_EQ("waitid", (info.si_pid == child1_pid) || (info.si_pid == child2_pid), true);
 
 	/* Check for other ID types that are not supported  */
 
-	child_pid = task_create("tc_waitid", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, function_waitid, (char * const *)NULL);
-	TC_ASSERT_GT("task_create", child_pid, 0);
+	child1_pid = task_create("tc_waitid", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, sleep1sec_taskdel, (char * const *)NULL);
+	TC_ASSERT_GT("task_create", child1_pid, 0);
 
-	ret_chk = waitid(P_GID, child_pid, &info, WEXITED);
+	ret_chk = waitid(P_GID, child1_pid, &info, WEXITED);
 	TC_ASSERT_EQ("waitid", ret_chk, ERROR);
 	TC_ASSERT_EQ("waitid", errno, ENOSYS);
 
 	/* Check for options != WEXITED */
-#ifdef CONFIG_DEBUG
-	ret_chk = waitid(P_PID, child_pid, &info, 0);
+	ret_chk = waitid(P_PID, child1_pid, &info, 0);
 	TC_ASSERT_EQ("waitid", ret_chk, ERROR);
 	TC_ASSERT_EQ("waitid", errno, ENOSYS);
-#endif
-
-	/* Check for The TCB corresponding to this PID is not our child. */
-
-	child_ppid = task_create("tc_waitid_2", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, function_waitid_2, (char * const *)NULL);
-	TC_ASSERT_GT("task_create", child_pid, 0);
-
-	ret_chk = waitid(P_PID, child_pid, &info, WEXITED);
-	TC_ASSERT_EQ("waitid", ret_chk, ERROR);
-	TC_ASSERT_EQ("waitid", errno, ECHILD);
 
 	TC_SUCCESS_RESULT();
 }
@@ -396,12 +356,11 @@ static void tc_sched_waitpid(void)
 	int status;
 
 	/* Check for The TCB corresponding to this PID is not our child. */
-
-	ret_chk = waitpid(0, &status, 0);
+	ret_chk = waitpid(INVALID_PID, &status, 0);
 	TC_ASSERT_EQ("waitpid", ret_chk, ERROR);
 	TC_ASSERT_EQ("waitpid", errno, ECHILD);
 
-	child_pid = task_create("tc_waitpid", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, function_wait, (char * const *)NULL);
+	child_pid = task_create("tc_waitpid", SCHED_PRIORITY_DEFAULT, TASK_STACKSIZE, sleep1sec_taskdel, (char * const *)NULL);
 	TC_ASSERT_GT("task_create", child_pid, 0);
 
 	ret_chk = waitpid(child_pid, &status, 0);
@@ -418,29 +377,6 @@ static void tc_sched_waitpid(void)
 #endif
 
 /**
-* @fn                   :tc_sched_sched_gettcb
-* @brief                :Given a tsk id, this function will return pointer to corresponding TCB or null if no such task id
-* @scenario             :return pointer to corresponding TCB or null for given task id
-* API's covered         :gettcb
-* Preconditions         :none
-* Postconditions        :none
-* @return               :void
-*/
-static void tc_sched_sched_gettcb(void)
-{
-	struct tcb_s *tcb;
-
-	tcb = sched_gettcb(PID_INVAL);
-	TC_ASSERT_EQ("sched_gettcb", tcb, NULL);
-
-	tcb = sched_gettcb(PID_IDLE);
-	TC_ASSERT_NEQ("sched_gettcb", tcb, NULL);
-	TC_ASSERT_EQ("sched_gettcb", tcb->pid, PID_IDLE);
-
-	TC_SUCCESS_RESULT();
-}
-
-/**
 * @fn                   :tc_sched_sched_lock_unlock
 * @brief                :sched_lock disables context switching by disabling addition of new tasks,
 *                        to the task list and increment lock count, sched_unlock decrements preemption lock count
@@ -455,19 +391,15 @@ static void tc_sched_sched_lock_unlock(void)
 {
 	int ret_chk = ERROR;
 	int cntlock;
-	struct tcb_s *st_tcb = NULL;
 
-	st_tcb = sched_self();
-	TC_ASSERT_NEQ("sched_self", st_tcb, NULL);
-
-	cntlock = st_tcb->lockcount;
+	cntlock = sched_lockcount();
 
 	ret_chk = sched_lock();
 	TC_ASSERT_NEQ("sched_lock", ret_chk, ERROR);
 
 	/* after sched_lock, lock count gets incremented */
 	ret_chk = cntlock;
-	cntlock = st_tcb->lockcount;
+	cntlock = sched_lockcount();
 	TC_ASSERT_EQ("sched_lock", ret_chk, cntlock - 1);
 
 	ret_chk = sched_lock();
@@ -475,7 +407,7 @@ static void tc_sched_sched_lock_unlock(void)
 
 	/* after sched_lock, lock count gets incremented */
 	ret_chk = cntlock;
-	cntlock = st_tcb->lockcount;
+	cntlock = sched_lockcount();
 	TC_ASSERT_EQ("sched_lock", ret_chk, cntlock - 1);
 
 	ret_chk = sched_unlock();
@@ -483,7 +415,7 @@ static void tc_sched_sched_lock_unlock(void)
 
 	/* after sched_unlock, lock count gets decremented */
 	ret_chk = cntlock;
-	cntlock = st_tcb->lockcount;
+	cntlock = sched_lockcount();
 	TC_ASSERT_EQ("sched_unlock", ret_chk, cntlock + 1);
 
 	ret_chk = sched_unlock();
@@ -491,10 +423,24 @@ static void tc_sched_sched_lock_unlock(void)
 
 	/* after sched_unlock, lock count gets decremented */
 	ret_chk = cntlock;
-	cntlock = st_tcb->lockcount;
+	cntlock = sched_lockcount();
 	TC_ASSERT_EQ("sched_unlock", ret_chk, cntlock + 1);
 
 	TC_SUCCESS_RESULT();
+}
+
+/**
+* @fn                   :pthread_sched_self
+* @description          :Function for tc_sched_sched_self
+* @return               :int
+*/
+
+static int pthread_sched_self(void *args)
+{
+	int fd;
+	fd = tc_get_drvfd();
+
+	return ioctl(fd, TESTIOC_GET_SELF_PID, 0);
 }
 
 /**
@@ -506,39 +452,19 @@ static void tc_sched_sched_lock_unlock(void)
 * Postconditions        :none
 * @return               :void
 */
+
 static void tc_sched_sched_self(void)
 {
-	struct tcb_s *st_tcbself;
-	struct tcb_s *st_tcbpid;
-	/* get process id */
+	int ret;
+	int pid;
+	pthread_t tid;
+	ret = pthread_create(&tid, NULL, (pthread_startroutine_t)pthread_sched_self, NULL);
+	TC_ASSERT_NEQ("pthread_create", ret, ERROR);
 
-	st_tcbpid = sched_self();
-	TC_ASSERT_NEQ("sched_self", st_tcbpid, NULL);
-
-	/* should return tcb for current process */
-	st_tcbself = sched_self();
-	TC_ASSERT_NEQ("sched_self", st_tcbself, NULL);
-	TC_ASSERT_EQ("sched_self", st_tcbself->pid, st_tcbpid->pid);
-
-	TC_SUCCESS_RESULT();
-}
-
-/**
-* @fn                   :tc_sched_sched_verifytcb
-* @brief                :Returns true if tcb refers to active task, false if it is state tcb handle
-* @scenario             :sched_verifytcb returns true if tcb refers to active task, false if it is state tcb handle
-* API's covered         :sched_verifytcb,sched_gettcb
-* Preconditions         :none
-* Postconditions        :none
-* @return               :void
-*/
-static void tc_sched_sched_verifytcb(void)
-{
-	bool ret_chk = false;
-	struct tcb_s *st_tcb;
-	st_tcb = sched_self();
-	ret_chk = sched_verifytcb(st_tcb);
-	TC_ASSERT_EQ("sched_verifytcb", ret_chk, true);
+	/* Wait for the threads to stop */
+	ret = pthread_join(tid, (void **)&pid);
+	TC_ASSERT_NEQ("pthread_join", ret, ERROR);
+	TC_ASSERT_EQ("sched_self", tid, pid);
 
 	TC_SUCCESS_RESULT();
 }
@@ -555,12 +481,12 @@ static void tc_sched_sched_verifytcb(void)
 static void tc_sched_sched_foreach(void)
 {
 	g_callback = false;
-	struct tcb_s *st_tcb;
-	st_tcb = sched_self();
-	g_task_pid = st_tcb->pid;
+	int fd;
+	fd = tc_get_drvfd();
+	g_task_pid = getpid();
 
 	/* provides TCB to user callback function "sched_foreach_callback" */
-	sched_foreach(sched_foreach_callback, NULL);
+	(void)ioctl(fd, TESTIOC_SCHED_FOREACH, (unsigned long)sched_foreach_callback);
 	TC_ASSERT_EQ("sched_foreach", g_callback, true);
 
 	TC_SUCCESS_RESULT();
@@ -581,10 +507,6 @@ static void tc_sched_sched_lockcount(void)
 	int ret_chk = ERROR;
 	int prev_cnt;
 	int cur_cnt;
-	struct tcb_s *st_tcb = NULL;
-
-	st_tcb = sched_self();
-	TC_ASSERT_NEQ("sched_self", st_tcb, NULL);
 
 	prev_cnt = sched_lockcount();
 	ret_chk = sched_lock();
@@ -606,6 +528,7 @@ static void tc_sched_sched_lockcount(void)
 	TC_SUCCESS_RESULT();
 }
 
+#if CONFIG_NFILE_STREAMS > 0
 /**
 * @fn                   :tc_sched_sched_getstreams
 * @brief                :return a pointer to the streams list for this thread
@@ -625,35 +548,7 @@ static void tc_sched_sched_getstreams(void)
 
 	TC_SUCCESS_RESULT();
 }
-
-
-/**
-* @fn                   :tc_sched_sched_setpriority
-* @brief                :This function sets the priority of a specified task
-* @scenario             :On success, sched_setparam() returns 0 (OK). On error, -1 (ERROR) is returned
-* API's covered         :sched_setpriority
-* Preconditions         :tcb - the TCB of task to reprioritize
-* Postconditions        :sched_priority - The new task priority
-* @return               :void
-*/
-
-static void tc_sched_sched_setpriority(void)
-{
-	int ret_chk = ERROR;
-	FAR struct tcb_s *tcb;
-
-	tcb = sched_gettcb(getpid());
-	TC_ASSERT_NEQ("sched_gettcb", tcb, NULL);
-
-	ret_chk = sched_setpriority(tcb, SCHED_PRIORITY);
-	TC_ASSERT_EQ("sched_setpriority", ret_chk, OK);
-
-	ret_chk = sched_setpriority(tcb, SCHED_PRIORITY_MIN - 1);
-	TC_ASSERT_EQ("sched_setpriority", ret_chk, ERROR);
-	TC_ASSERT_EQ("sched_setpriority", errno, EINVAL);
-
-	TC_SUCCESS_RESULT();
-}
+#endif
 
 #if !defined(CONFIG_BUILD_PROTECTED)
 /**
@@ -672,7 +567,7 @@ static void tc_sched_task_setcancelstate(void)
 	int noncancelable_flag;
 	int originstate;
 	int oldstate;
-	struct tcb_s *tcb = this_task();
+	struct tcb_s *tcb = sched_self();
 	int ret_chk;
 
 	noncancelable_flag = tcb->flags & TCB_FLAG_NONCANCELABLE;
@@ -727,7 +622,7 @@ static void tc_sched_task_setcanceltype(void)
 	int defferred_flag;
 	int origintype;
 	int oldtype;
-	struct tcb_s *tcb = this_task();
+	struct tcb_s *tcb = sched_self();
 	int ret_chk;
 
 	defferred_flag = tcb->flags & TCB_FLAG_CANCEL_DEFERRED;
@@ -796,14 +691,13 @@ int sched_main(void)
 	tc_sched_sched_setget_scheduler_param();
 	tc_sched_sched_rr_get_interval();
 	tc_sched_sched_yield();
-	tc_sched_sched_gettcb();
 	tc_sched_sched_lock_unlock();
 	tc_sched_sched_self();
-	tc_sched_sched_verifytcb();
 	tc_sched_sched_foreach();
 	tc_sched_sched_lockcount();
+#if CONFIG_NFILE_STREAMS > 0
 	tc_sched_sched_getstreams();
-	tc_sched_sched_setpriority();
+#endif
 #ifndef CONFIG_BUILD_PROTECTED
 	tc_sched_task_setcancelstate();
 #ifdef CONFIG_CANCELLATION_POINTS

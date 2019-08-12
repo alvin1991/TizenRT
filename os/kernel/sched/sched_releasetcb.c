@@ -66,16 +66,27 @@
 #include "sched/sched.h"
 #include "group/group.h"
 #include "timer/timer.h"
-#if defined(CONFIG_ENABLE_STACKMONITOR) && defined(CONFIG_DEBUG)
-#include <apps/system/utils.h>
-#endif
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 #include <tinyara/mm/mm.h>
-#endif
 
 /************************************************************************
- * Private Functions
+ * Name: heapinfo_dealloc_tcbinfo
+ *
+ * Description:  Free the heapinfo tcb info which tcb is terminated.
  ************************************************************************/
+static void heapinfo_dealloc_tcbinfo(void *address, pid_t pid)
+{
+	pid_t hash_pid;
+	struct mm_heap_s *heap = mm_get_heap(address);
+	hash_pid = PIDHASH(pid);
+	if (heap && heap->alloc_list[hash_pid].pid == pid) {
+		heap->alloc_list[hash_pid].pid = HEAPINFO_INIT_INFO;
+		heap->alloc_list[hash_pid].curr_alloc_size = 0;
+		heap->alloc_list[hash_pid].peak_alloc_size = 0;
+		heap->alloc_list[hash_pid].num_alloc_free = 0;
+	}
+}
+#endif
 
 /************************************************************************
  * Name:  sched_releasepid
@@ -97,13 +108,10 @@ static void sched_releasepid(pid_t pid)
 	g_pidhash[hash_ndx].pid = INVALID_PROCESS_ID;
 
 #ifdef CONFIG_SCHED_CPULOAD
-	/* Decrement the total CPU load count held by this thread from the
-	 * total for all threads.  Then we can reset the count on this
-	 * defunct thread to zero.
+	/* Decrement the total CPU load count held by this thread from total
+	 * for all threads and reset the load count on this defunct thread
 	 */
-
-	g_cpuload_total -= g_pidhash[hash_ndx].ticks;
-	g_pidhash[hash_ndx].ticks = 0;
+	sched_clear_cpuload(pid);
 #endif
 	/* Decrement the alive task count as task is exiting */
 	g_alive_taskcount--;
@@ -140,11 +148,15 @@ int sched_releasetcb(FAR struct tcb_s *tcb, uint8_t ttype)
 
 	if (tcb) {
 #if defined(CONFIG_ENABLE_STACKMONITOR) && defined(CONFIG_DEBUG)
-		stkmon_logging(tcb);
+		sched_save_terminated_stackinfo(tcb);
 #endif
 
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+		/* Deallocate heapinfo tcb infos in heap */
+		heapinfo_dealloc_tcbinfo(tcb->stack_alloc_ptr, tcb->pid);
 #ifdef CONFIG_HEAPINFO_USER_GROUP
 		heapinfo_update_group_info(tcb->pid, -1, HEAPINFO_DEL_INFO);
+#endif
 #endif
 
 #ifndef CONFIG_DISABLE_POSIX_TIMERS

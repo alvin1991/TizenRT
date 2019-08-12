@@ -683,6 +683,27 @@ void up_signal_dispatch(_sa_sigaction_t sighand, int signo, FAR siginfo_t *info,
 void up_signal_handler(_sa_sigaction_t sighand, int signo, FAR siginfo_t *info, FAR void *ucontext) noreturn_function;
 #endif
 
+/* Memory management ********************************************************/
+
+#if CONFIG_MM_REGIONS > 1
+void up_addregion(void);
+#else
+#define up_addregion()
+#endif
+
+/****************************************************************************
+ * Name: up_userspace
+ *
+ * Description:
+ *   For the case of the separate user-/kernel-space build, perform whatever
+ *   platform specific initialization of the user memory is required.
+ *   Normally this just means initializing the user space .data and .bss
+ *   segments.
+ *
+ ****************************************************************************/
+
+void up_userspace(void);
+
 /****************************************************************************
  * Name: up_allocate_heap
  *

@@ -31,7 +31,7 @@ config MM_KERNEL_HEAPSIZE
 		user-mode heap.  This value may need to be aligned to units of the
 		size of the smallest memory protection region.
 
-config DISABLE_REALLOC_NEIGHBOR_EXTENSION
+config REALLOC_DISABLE_NEIGHBOR_EXTENSION
 	bool "Disable Realloc Neighbor Extension"
 	default n
 	---help---
@@ -64,29 +64,33 @@ config MM_REGIONS
 	default 1
 	---help---
 		If the architecture includes multiple, non-contiguous regions of
-		memory to allocate from, this specifies the number of memory regions
-		that the memory manager must handle and enables the API
-		mm_addregion(heap, start, end);
+		memory to allocate from, MM_REGIONS should be set to the number of
+		memory. Or if you want to use RAM to multiple region(heap), MM_REGIONS
+		should be set to the number of heaps.
 
-config ARCH_HAVE_HEAPx
-	bool
+config MM_NHEAPS
+	int "Number of heaps"
+	default 1
+	---help---
+		A number of heap memory. If MM_NHEAPS sets to 1, RAM memory can be
+		used for one heap memory. If MM_NHEAPS sets more than equal to 2, it can be
+		split for multi-heap.
+		You can refer to "https://github.com/Samsung/TizenRT/blob/master/docs/HowToUseMultiHeap.md"
+
+config KMM_FORCE_ALLOC_AT
+	bool "Force to alloc at specific mm heap for kernel"
 	default n
-
-if ARCH_HAVE_HEAPx
-
-config HEAPx_BASE
-	string "List of start address for additional heap region"
-	default "0x00000000,"
+	depends on MM_NHEAPS != 1
 	---help---
-		The base address list of the additional heap region.
+		When Enable multi heap, it's possible that need to alloc memory from
+		specific heap for kernel
 
-config HEAPx_SIZE
-	string "List of size for additional heap region"
-	default "0,"
+config KMM_FORCE_ALLOC_IDX
+	int "Heap index for kernel memory"
+	default 0
+	depends on KMM_FORCE_ALLOC_AT
 	---help---
-		The size list of additional heap region.
-
-endif # ARCH_HAVE_HEAPx
+		Index of the heap that need to alloc for kernel forcedly
 
 config GRAN
 	bool "Enable Granule Allocator"
@@ -166,3 +170,11 @@ config MM_SHM
 	---help---
 		Build in support for the shared memory interfaces shmget(), shmat(),
 		shmctl(), and shmdt().
+
+config MM_PARTITION_HEAP
+	bool "Maintain Partition heap for apps"
+	default n
+	depends on APP_BINARY_SEPARATION
+	---help---
+		If this is enabled, then RAM partitions for apps will be allocated using
+		partition heap. Otherwise, the allocation will be done statically.

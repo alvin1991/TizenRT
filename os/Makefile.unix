@@ -92,7 +92,7 @@ ARCH_INC = $(ARCH_DIR)/include
 ifeq ($(CONFIG_ARCH_BOARD_CUSTOM),y)
 BOARD_DIR = $(CONFIG_ARCH_BOARD_CUSTOM_DIR)
 else
-BOARD_DIR = $(ARCH_SRC)/$(CONFIG_ARCH_BOARD)
+BOARD_DIR = board/$(CONFIG_ARCH_BOARD)
 endif
 
 # CONFIG_APPS_DIR can be over-ridden from the command line or in the .config file.
@@ -104,6 +104,8 @@ ifeq ($(CONFIG_APPS_DIR),)
 CONFIG_APPS_DIR = ../apps
 endif
 APPDIR := ${shell if [ -r $(CONFIG_APPS_DIR)/Makefile ]; then echo "$(CONFIG_APPS_DIR)"; fi}
+
+LOADABLE_APPDIR := ${shell if [ -r ../loadable_apps/Makefile ]; then echo "../loadable_apps"; fi}
 
 #ifeq ($(CONFIG_FRAMEWORK_DIR),)
 CONFIG_FRAMEWORK_DIR = ../framework
@@ -123,29 +125,8 @@ TOOLSDIR := ${shell if [ -r $(CONFIG_TOOLS_DIR)/Makefile ]; then echo "$(CONFIG_
 BUILD_DIR = ../build
 OUTPUT_DIR = $(BUILD_DIR)/output
 LIBRARIES_DIR = $(OUTPUT_DIR)/libraries
-BIN_DIR = $(OUTPUT_DIR)/bin
+OUTBIN_DIR = $(OUTPUT_DIR)/bin
 LIB_DIR = ../lib
-
-ifeq ($(CONFIG_ENABLE_IOTIVITY),y)
-ifeq ($(CONFIG_IOTIVITY_RELEASE),y)
-IOTIVITY_LIBS=release
-else
-IOTIVITY_LIBS=debug
-endif
-IOTIVITY_RELEASE=${shell echo $(CONFIG_IOTIVITY_RELEASE_VERSION) | sed 's/"//g'}
-IOTIVITY_TARGET_ARCH := ${shell echo $(CONFIG_ARCH_FAMILY) | sed 's/"//g'}
-IOTIVITY_LIBS_DIR=$(EXTDIR)/iotivity/iotivity_$(IOTIVITY_RELEASE)/out/tizenrt/$(IOTIVITY_TARGET_ARCH)/$(IOTIVITY_LIBS)
-IOTIVITY_CONFIG_DIR=$(EXTDIR)/iotivity/iotivity_$(IOTIVITY_RELEASE)/resource/c_common
-endif
-
-ifeq ($(CONFIG_ENABLE_IOTJS),y)
-IOTJS_ROOT_DIR ?= $(EXTDIR)/iotjs
-ifeq ($(CONFIG_DEBUG),y)
-IOTJS_LIB_DIR = $(IOTJS_ROOT_DIR)/build/arm-tizenrt/debug/lib
-else
-IOTJS_LIB_DIR = $(IOTJS_ROOT_DIR)/build/arm-tizenrt/release/lib
-endif
-endif
 
 # Add-on directories.  These may or may not be in place in the
 # TinyAra source tree (they must be specifically installed)
@@ -217,7 +198,7 @@ LINKLIBS = $(patsubst $(LIBRARIES_DIR)/%,%,$(TINYARALIBS))
 
 # Export tool definitions
 
-MKEXPORT= tools/mkexport.sh
+MKEXPORT = tools/mkexport.sh
 MKEXPORT_ARGS = -w$(WINTOOL) -t "$(TOPDIR)"
 
 ifeq ($(CONFIG_BUILD_PROTECTED),y)
@@ -232,15 +213,25 @@ ifeq ($(V),2)
 MKEXPORT_ARGS += -d
 endif
 
+ifeq ($(CONFIG_INTELHEX_BINARY),y)
+BIN_EXT = hex
+endif
+ifeq ($(CONFIG_MOTOROLA_SREC),y)
+BIN_EXT = srec
+endif
+ifeq ($(CONFIG_RAW_BINARY),y)
+BIN_EXT = bin
+endif
+
 # This is the name of the final target (relative to the top level directorty)
 
 BIN_EXE = tinyara$(EXEEXT)
-BIN = $(BIN_DIR)/$(BIN_EXE)
+BIN = $(OUTBIN_DIR)/$(BIN_EXE)
 
-memstat: $(BIN)
+memstat: $(BIN) romfs
 
 all: memstat
-.PHONY: context clean_context check_context export subdir_clean clean subdir_distclean distclean apps_clean apps_distclean force_build applist appupdate
+.PHONY: context clean_context check_context config oldconfig menuconfig nconfig qconfig gconfig export subdir_clean clean subdir_distclean distclean apps_clean apps_distclean force_build applist appupdate
 
 # Target used to copy include/tinyara/math.h.  If CONFIG_ARCH_MATH_H is
 # defined, then there is an architecture specific math.h header file
@@ -309,7 +300,7 @@ tools/mkversion$(HOSTEXEEXT):
 
 $(TOPDIR)/.version: force_build
 	echo "create .version file"; \
-	tools/version.sh -v 1.1 .version; \
+	tools/version.sh -v 2.0 .version; \
 	chmod 755 .version
 
 include/tinyara/version.h: $(TOPDIR)/.version tools/mkversion$(HOSTEXEEXT)
@@ -324,17 +315,6 @@ tools/mkconfig$(HOSTEXEEXT):
 
 include/tinyara/config.h: $(TOPDIR)/.config tools/mkconfig$(HOSTEXEEXT)
 	$(Q) tools/mkconfig $(TOPDIR) > include/tinyara/config.h
-
-ifeq ($(CONFIG_ENABLE_IOTIVITY),y)
-# Temporariry workaround for build error "iotivity_config.h" not found
-# The error is due to build sequence (apps being built before external)
-# Workaround is creating an empty file "iotivity_config.h" which will be
-# later replced by proper file by scons build for iotivity.
-iotivity_context:
-	$(Q) touch $(IOTIVITY_CONFIG_DIR)/iotivity_config.h
-else
-iotivity_context:
-endif
 
 # Targets used to create dependencies
 
@@ -365,7 +345,7 @@ include/arch: Make.defs
 
 # Link the configs/<board-name>/include directory to include/arch/board
 
-include/arch/board: include/arch Make.defs include/arch
+include/arch/board: include/arch Make.defs 
 	@echo "LN: include/arch/board to $(BOARD_DIR)/include"
 	$(Q) $(DIRLINK) $(TOPDIR)/$(BOARD_DIR)/include include/arch/board
 
@@ -400,15 +380,16 @@ dirlinks: include/arch include/arch/board include/arch/chip $(ARCH_SRC)/board $(
 # the config.h and version.h header files in the include/tinyara directory and
 # the establishment of symbolic links to configured directories.
 
-context: check_context iotivity_context include/tinyara/config.h include/tinyara/version.h include/math.h include/float.h include/stdarg.h dirlinks
+context: check_context include/tinyara/config.h include/tinyara/version.h include/math.h include/float.h include/stdarg.h dirlinks
 	$(Q)if [ -e ${BIN} ]; then \
-		echo "Previous Build Outputs - $(BIN_DIR) - are deleted"; \
-		rm -rf ${BIN_DIR}/*; \
+		echo "Previous Build Outputs - $(OUTBIN_DIR) - are deleted"; \
+		rm -rf ${OUTBIN_DIR}/*; \
 	fi
 	$(Q) for dir in $(CONTEXTDIRS) ; do \
-		$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" context; \
+		$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" context; \
 	done
 	$(call DELFILE, $(APPDIR)/builtin/registry/*.?dat)
+	$(Q) ./tools/mkldscript.sh
 
 # clean_context
 #
@@ -416,7 +397,6 @@ context: check_context iotivity_context include/tinyara/config.h include/tinyara
 # and symbolic links created by the context target.
 
 clean_context:
-	$(call DELFILE, $(IOTIVITY_CONFIG_DIR)/iotivity_config.h)
 	$(call DELFILE, include/tinyara/config.h)
 	$(call DELFILE, include/tinyara/version.h)
 	$(call DELFILE, include/math.h)
@@ -437,8 +417,10 @@ clean_context:
 
 check_context:
 	$(Q) if [ ! -e ${TOPDIR}/.config -o ! -e ${TOPDIR}/Make.defs ]; then \
-		echo "" ; echo "TinyAra has not been configured:" ; \
-		echo "  cd tools; ./configure.sh <target>" ; echo "" ; \
+		echo "" ; \
+		echo "TizenRT has not been configured:" ; \
+		echo "  tools/configure.sh <target>" ; \
+		echo "" ; \
 		exit 1 ; \
 	fi
 
@@ -459,7 +441,7 @@ include LibTargets.mk
 # is an archive.  Exactly what is performed during pass1 or what it generates
 # is unknown to this makefile unless CONFIG_PASS1_OBJECT is defined.
 
-PASS1_BUILDIR = $(BOARD_DIR)/userspace
+PASS1_BUILDIR = board/common/userspace
 
 pass1deps: pass1dep $(USERLIBS)
 
@@ -473,32 +455,35 @@ ifeq ($(CONFIG_BUILD_2PASS),y)
 		echo "ERROR: No Makefile in PASS1_BUILDIR"; \
 		exit 1; \
 	fi
+	$(call DELFILE, $(PASS1_BUILDIR)/up_userspace.o)
 	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" LINKLIBS="$(LINKLIBS)" USERLIBS="$(USERLIBS)" "$(CONFIG_PASS1_TARGET)"
+	$(Q) $(MAKE) -C $(LOADABLE_APPDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" LIBRARIES_DIR="$(LIBRARIES_DIR)" USERLIBS="$(USERLIBS)" all KERNEL=n
 endif
 
 pass2deps: pass2dep $(TINYARALIBS)
 
 pass2: pass2deps
-	$(Q) $(MAKE) -C $(ARCH_SRC) TOPDIR="$(TOPDIR)" BIN_DIR="$(BIN_DIR)" LIBRARIES_DIR="$(LIBRARIES_DIR)" EXTRA_OBJS="$(EXTRA_OBJS)" LINKLIBS="$(LINKLIBS)" EXTRADEFINES=$(KDEFINE) $(BIN)
+	$(Q) $(MAKE) -C $(ARCH_SRC) TOPDIR="$(TOPDIR)" OUTBIN_DIR="$(OUTBIN_DIR)" LIBRARIES_DIR="$(LIBRARIES_DIR)" EXTRA_OBJS="$(EXTRA_OBJS)" LINKLIBS="$(LINKLIBS)" EXTRADEFINES=$(KDEFINE) $(BIN)
 	$(Q) if [ -w /tftpboot ] ; then \
 		cp -f $(BIN) /tftpboot/$(BIN_EXE).${CONFIG_ARCH}; \
 	fi
+
 ifeq ($(CONFIG_INTELHEX_BINARY),y)
-	@echo "CP: $(BIN_EXE).hex"
+	$(Q) echo "CP: $(BIN_EXE).hex"
 	$(Q) $(OBJCOPY) $(OBJCOPYARGS) -O ihex $(BIN) $(BIN).hex
 endif
 ifeq ($(CONFIG_MOTOROLA_SREC),y)
-	@echo "CP: $(BIN_EXE).srec"
+	$(Q) echo "CP: $(BIN_EXE).srec"
 	$(Q) $(OBJCOPY) $(OBJCOPYARGS) -O srec $(BIN) $(BIN).srec
 endif
 ifeq ($(CONFIG_RAW_BINARY),y)
-	@echo "CP: $(BIN_EXE).bin"
+	$(Q) echo "CP: $(BIN_EXE).bin"
 	$(Q) $(OBJCOPY) $(OBJCOPYARGS) -O binary $(BIN) $(BIN).bin
 endif
-ifeq ($(CONFIG_SAMSUNG_NS2),y)
-	@echo "ATTACHNS2: $(BIN).bin --> $(BIN)_head.bin"
-	$(Q) tools/s5jchksum.py $(BIN).bin $(BIN)_head.bin
-endif
+
+	$(Q) echo "Start the Board Specific Work for Binary"
+	$(Q) $(call MAKE_BOARD_SPECIFIC_BIN, $(BIN_EXE), $(BIN_EXT))
+
 ifeq ($(CONFIG_UBOOT_UIMAGE),y)
 	@echo "MKIMAGE: uImage"
 	$(Q) mkimage -A arm -O linux -C none -T kernel -a $(CONFIG_UIMAGE_LOAD_ADDRESS) \
@@ -508,7 +493,7 @@ ifeq ($(CONFIG_UBOOT_UIMAGE),y)
 	fi
 endif
 ifeq ($(CONFIG_DEBUG_DISPLAY_SYMBOL),y)
-	cp ${BIN_DIR}/System.map ${TOOLSDIR}/fs/contents/System.map
+	cp ${OUTBIN_DIR}/System.map ${TOOLSDIR}/fs/contents/System.map
 else
 	$(call DELFILE, ${TOOLSDIR}/fs/contents/System.map)
 endif
@@ -545,15 +530,15 @@ ifeq (download,$(firstword $(MAKECMDGOALS)))
 endif
 
 download:
-	$(call DOWNLOAD, $(DOWNLOAD_ARGS))
+	$(Q) $(call DOWNLOAD, $(DOWNLOAD_ARGS))
 
 ota_img:
-	$(call OTA_IMG)
+	$(Q) $(call OTA_IMG)
 
 # pass1dep: Create pass1 build dependencies
 # pass2dep: Create pass2 build dependencies
 
-pass1dep: context tools/mkdeps$(HOSTEXEEXT)
+pass1dep: context tools/mkdeps$(HOSTEXEEXT) tools/compression/mkcompresstool.sh
 	$(Q) for dir in $(USERDEPDIRS) ; do \
 		$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" depend ; \
 	done
@@ -570,19 +555,24 @@ pass2dep: context tools/mkdeps$(HOSTEXEEXT)
 # location: http://ymorin.is-a-geek.org/projects/kconfig-frontends.
 
 config: apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} kconfig-conf Kconfig
+	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} LOADABLEDIR=${LOADABLE_APPDIR} kconfig-conf Kconfig
 
 oldconfig: apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} kconfig-conf --oldconfig Kconfig
+	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} LOADABLEDIR=${LOADABLE_APPDIR} kconfig-conf --oldconfig Kconfig
 
 menuconfig: apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} kconfig-mconf Kconfig
+	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} LOADABLEDIR=${LOADABLE_APPDIR} kconfig-mconf Kconfig
+
+do_nconfig: apps_preconfig
+	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} LOADABLEDIR=${LOADABLE_APPDIR} kconfig-nconf Kconfig
+
+nconfig: do_nconfig clean_context
 
 qconfig: apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} kconfig-qconf Kconfig
+	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} LOADABLEDIR=${LOADABLE_APPDIR} kconfig-qconf Kconfig
 
 gconfig: apps_preconfig
-	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} kconfig-gconf Kconfig
+	$(Q) APPSDIR=${CONFIG_APPS_DIR} EXTERNALDIR=${CONFIG_EXTERNAL_DIR} LIBDIR=${LIB_DIR} LOADABLEDIR=${LOADABLE_APPDIR} kconfig-gconf Kconfig
 
 # export
 #
@@ -610,25 +600,26 @@ depend: pass1dep pass2dep
 subdir_clean:
 	$(Q) for dir in $(CLEANDIRS) ; do \
 		if [ -e $$dir/Makefile ]; then \
-			$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" clean ; \
+			$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" clean ; \
 		fi \
 	done
 	$(Q) $(MAKE) -C tools -f Makefile.host TOPDIR="$(TOPDIR)" clean
 ifeq ($(CONFIG_BUILD_2PASS),y)
-	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" clean
+	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" clean
 endif
 
 clean: subdir_clean
-	$(call DELFILE, $(BIN_DIR)/*)
+	$(call DELFILE, $(OUTBIN_DIR)/*)
 	$(call DELFILE, _SAVED_APPS_config)
 	$(call DELFILE, tinyara-export*)
 	$(call DELFILE, tinyara_user*)
+	$(call DELFILE, build.log*)
 	$(call CLEAN)
 
 subdir_distclean:
 	$(Q) for dir in $(CLEANDIRS) ; do \
 		if [ -e $$dir/Makefile ]; then \
-			$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" distclean ; \
+			$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" distclean ; \
 		fi \
 	done
 
@@ -640,7 +631,7 @@ endif
 
 distclean: clean subdir_distclean clean_context
 ifeq ($(CONFIG_BUILD_2PASS),y)
-	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" distclean
+	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" distclean
 endif
 	$(call DELFILE, Make.defs)
 	$(call DELFILE, setenv.sh)
@@ -670,6 +661,9 @@ apps_preconfig:
 ifneq ($(APPDIR),)
 	$(Q) $(MAKE) -C "$(TOPDIR)/$(APPDIR)" TOPDIR="$(TOPDIR)" preconfig
 endif
+ifneq ($(LOADABLE_APPDIR),)
+	$(Q) $(MAKE) -C "$(TOPDIR)/$(LOADABLE_APPDIR)" TOPDIR="$(TOPDIR)" LOADABLEDIR=${LOADABLE_APPDIR} preconfig
+endif
 
 apps_clean:
 ifneq ($(APPDIR),)
@@ -689,4 +683,25 @@ endif
 appupdate:
 ifneq ($(APPDIR),)
 	$(Q) $(MAKE) -C "$(TOPDIR)/$(APPDIR)" TOPDIR="$(TOPDIR)" appupdate
+endif
+
+# romfs
+#
+# The romfs target will make a romfs image by calling mkromfsimg.sh.
+# The content of romfs should be in $(TOPDIR)/../tools/fs/contents folder.
+
+romfs:
+ifeq ($(CONFIG_FS_ROMFS),y)
+	$(Q) ../tools/fs/mkromfsimg.sh
+endif
+
+# tools/compression/mkcompresstool.sh
+#
+# This target will make a compression tool by calling mkcompresstool.sh.
+# This compression tool (mkcompressimg) will be used to compress binaries.
+# Hence, this tool needs to be created before we build those binaries.
+
+tools/compression/mkcompresstool.sh: include/tinyara/config.h
+ifeq ($(CONFIG_COMPRESSED_BINARY),y)
+	$(Q) tools/compression/mkcompresstool.sh
 endif

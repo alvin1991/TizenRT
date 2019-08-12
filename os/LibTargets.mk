@@ -111,11 +111,37 @@ audio$(DELIM)libaudio$(LIBEXT): context
 $(LIBRARIES_DIR)$(DELIM)libaudio$(LIBEXT): audio$(DELIM)libaudio$(LIBEXT)
 	$(Q) install audio$(DELIM)libaudio$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libaudio$(LIBEXT)
 
+se$(DELIM)libse$(LIBEXT): context
+	$(Q) $(MAKE) -C se TOPDIR="$(TOPDIR)" libse$(LIBEXT) KERNEL=y EXTRADEFINES=$(KDEFINE)
+
+$(LIBRARIES_DIR)$(DELIM)libse$(LIBEXT): se$(DELIM)libse$(LIBEXT)
+	$(Q) install se$(DELIM)libse$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libse$(LIBEXT)
+
+compression$(DELIM)libcompression$(LIBEXT): context
+	$(Q) $(MAKE) -C compression TOPDIR="$(TOPDIR)" libcompression$(LIBEXT) KERNEL=y EXTRADEFINES=$(KDEFINE)
+
+$(LIBRARIES_DIR)$(DELIM)libcompression$(LIBEXT): compression$(DELIM)libcompression$(LIBEXT)
+	$(Q) install compression$(DELIM)libcompression$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libcompression$(LIBEXT)
+
+crypto$(DELIM)libcrypto$(LIBEXT): context
+	$(Q) $(MAKE) -C crypto TOPDIR="$(TOPDIR)" libcrypto$(LIBEXT) KERNEL=y EXTRADEFINES=$(KDEFINE)
+
+$(LIBRARIES_DIR)$(DELIM)libcrypto$(LIBEXT): crypto$(DELIM)libcrypto$(LIBEXT)
+	$(Q) install crypto$(DELIM)libcrypto$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libcrypto$(LIBEXT)
+
 drivers$(DELIM)libdrivers$(LIBEXT): context
 	$(Q) $(MAKE) -C drivers TOPDIR="$(TOPDIR)" libdrivers$(LIBEXT) KERNEL=y EXTRADEFINES=$(KDEFINE)
 
 $(LIBRARIES_DIR)$(DELIM)libdrivers$(LIBEXT): drivers$(DELIM)libdrivers$(LIBEXT)
 	$(Q) install drivers$(DELIM)libdrivers$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libdrivers$(LIBEXT)
+
+ifeq ($(CONFIG_BINFMT_ENABLE),y)
+binfmt$(DELIM)libbinfmt$(LIBEXT): context
+	$(Q) $(MAKE) -C binfmt TOPDIR="$(TOPDIR)" libbinfmt$(LIBEXT) KERNEL=y EXTRADEFINES=$(KDEFINE)
+
+$(LIBRARIES_DIR)$(DELIM)libbinfmt$(LIBEXT): binfmt$(DELIM)libbinfmt$(LIBEXT)
+	$(Q) install binfmt$(DELIM)libbinfmt$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libbinfmt$(LIBEXT)
+endif
 
 # Special case
 
@@ -174,6 +200,12 @@ $(LIBRARIES_DIR)$(DELIM)libframework$(LIBEXT): $(FRAMEWORK_LIB_DIR)$(DELIM)libfr
 
 $(EXTDIR)$(DELIM)libexternal$(LIBEXT): context
 	$(Q) $(MAKE) -C $(EXTDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" libexternal$(LIBEXT) KERNEL=n
+ifeq ($(CONFIG_ENABLE_IOTIVITY),y)
+	$(Q) $(MAKE) -C $(EXTDIR)/iotivity TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" KERNEL=n
+endif
+ifeq ($(CONFIG_ENABLE_IOTJS),y)
+	$(Q) $(MAKE) -C $(EXTDIR)/iotjs/config/tizenrt TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" KERNEL=n
+endif
 
 $(LIBRARIES_DIR)$(DELIM)libexternal$(LIBEXT): $(EXTDIR)$(DELIM)libexternal$(LIBEXT)
 	$(Q) install $(EXTDIR)$(DELIM)libexternal$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libexternal$(LIBEXT)
@@ -181,61 +213,27 @@ $(LIBRARIES_DIR)$(DELIM)libexternal$(LIBEXT): $(EXTDIR)$(DELIM)libexternal$(LIBE
 #Iotivity Libs
 
 ifeq ($(CONFIG_ENABLE_IOTIVITY),y)
-
-$(LIBRARIES_DIR)$(DELIM)liboctbstack$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)liboctbstack$(LIBEXT)
-	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)liboctbstack$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)liboctbstack$(LIBEXT)
-
-$(LIBRARIES_DIR)$(DELIM)libc_common$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)libc_common$(LIBEXT)
-	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)libc_common$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libc_common$(LIBEXT)
-
-$(LIBRARIES_DIR)$(DELIM)libcoap$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)libcoap$(LIBEXT)
-	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)libcoap$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libcoap$(LIBEXT)
-
-$(LIBRARIES_DIR)$(DELIM)libconnectivity_abstraction$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)libconnectivity_abstraction$(LIBEXT)
-	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)libconnectivity_abstraction$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libconnectivity_abstraction$(LIBEXT)
-
-$(LIBRARIES_DIR)$(DELIM)liblogger$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)liblogger$(LIBEXT)
-	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)liblogger$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)liblogger$(LIBEXT)
-
-$(LIBRARIES_DIR)$(DELIM)libocsrm$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)libocsrm$(LIBEXT)
-	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)libocsrm$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libocsrm$(LIBEXT)
-
-$(LIBRARIES_DIR)$(DELIM)libroutingmanager$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)libroutingmanager$(LIBEXT)
-	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)libroutingmanager$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libroutingmanager$(LIBEXT)
-
-ifeq ($(CONFIG_ENABLE_IOTIVITY_CLOUD),y)
-
-$(LIBRARIES_DIR)$(DELIM)libresource_directory$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)libresource_directory$(LIBEXT)
-	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)libresource_directory$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libresource_directory$(LIBEXT)
-
-endif
-
-ifeq ($(CONFIG_ENABLE_IOTIVITY_SECURED),y)
-
-#$(LIBRARIES_DIR)$(DELIM)libtinydtls$(LIBEXT): $(IOTIVITY_LIBS_DIR)$(DELIM)libtinydtls$(LIBEXT)
-#	$(Q) install $(IOTIVITY_LIBS_DIR)$(DELIM)libtinydtls$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libtinydtls$(LIBEXT)
-
-
-endif
-endif
+$(LIBRARIES_DIR)$(DELIM)libiotivity$(LIBEXT): $(EXTDIR)$(DELIM)iotivity$(DELIM)libiotivity$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)iotivity$(DELIM)libiotivity$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libiotivity$(LIBEXT)
+endif # CONFIG_ENABLE_IOTIVITY
 
 #IoTjs Libs
 
 ifeq ($(CONFIG_ENABLE_IOTJS),y)
-$(LIBRARIES_DIR)$(DELIM)libhttpparser$(LIBEXT): $(IOTJS_LIB_DIR)$(DELIM)libhttpparser$(LIBEXT)
-	$(Q) install $(IOTJS_LIB_DIR)$(DELIM)libhttpparser$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libhttpparser$(LIBEXT)
+$(LIBRARIES_DIR)$(DELIM)libhttpparser$(LIBEXT): $(EXTDIR)$(DELIM)iotjs$(DELIM)libhttpparser$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)iotjs$(DELIM)libhttpparser$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libhttpparser$(LIBEXT)
 
-$(LIBRARIES_DIR)$(DELIM)libiotjs$(LIBEXT): $(IOTJS_LIB_DIR)$(DELIM)libiotjs$(LIBEXT)
-	$(Q) install $(IOTJS_LIB_DIR)$(DELIM)libiotjs$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libiotjs$(LIBEXT)
+$(LIBRARIES_DIR)$(DELIM)libiotjs$(LIBEXT): $(EXTDIR)$(DELIM)iotjs$(DELIM)libiotjs$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)iotjs$(DELIM)libiotjs$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libiotjs$(LIBEXT)
 
-$(LIBRARIES_DIR)$(DELIM)libjerry-core$(LIBEXT): $(IOTJS_LIB_DIR)$(DELIM)libjerry-core$(LIBEXT)
-	$(Q) install $(IOTJS_LIB_DIR)$(DELIM)libjerry-core$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libjerry-core$(LIBEXT)
+$(LIBRARIES_DIR)$(DELIM)libjerry-core$(LIBEXT): $(EXTDIR)$(DELIM)iotjs$(DELIM)libjerry-core$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)iotjs$(DELIM)libjerry-core$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libjerry-core$(LIBEXT)
 
-$(LIBRARIES_DIR)$(DELIM)libtuv$(LIBEXT): $(IOTJS_LIB_DIR)$(DELIM)libtuv$(LIBEXT)
-	$(Q) install $(IOTJS_LIB_DIR)$(DELIM)libtuv$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libtuv$(LIBEXT)
+$(LIBRARIES_DIR)$(DELIM)libtuv$(LIBEXT): $(EXTDIR)$(DELIM)iotjs$(DELIM)libtuv$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)iotjs$(DELIM)libtuv$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libtuv$(LIBEXT)
 
-$(LIBRARIES_DIR)$(DELIM)libjerry-libm$(LIBEXT): $(IOTJS_LIB_DIR)$(DELIM)libjerry-libm$(LIBEXT)
-	$(Q) install $(IOTJS_LIB_DIR)$(DELIM)libjerry-libm$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libjerry-libm$(LIBEXT)
+$(LIBRARIES_DIR)$(DELIM)libjerry-libm$(LIBEXT): $(EXTDIR)$(DELIM)iotjs$(DELIM)libjerry-libm$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)iotjs$(DELIM)libjerry-libm$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libjerry-libm$(LIBEXT)
 endif
 
 # Possible non-kernel builds
@@ -262,4 +260,48 @@ $(LIBRARIES_DIR)$(DELIM)libarch$(LIBEXT): $(ARCH_SRC)$(DELIM)libarch$(LIBEXT)
 ifeq ($(CONFIG_WL_BCM4390X),y)
 $(LIBRARIES_DIR)$(DELIM)libbcmexternal$(LIBEXT): $(EXTDIR)$(DELIM)WICED$(DELIM)libbcmexternal$(LIBEXT)
 	$(Q) install $(EXTDIR)$(DELIM)WICED$(DELIM)libbcmexternal$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libbcmexternal$(LIBEXT)
+endif
+
+ifeq ($(CONFIG_RTK_WLAN),y)
+$(LIBRARIES_DIR)$(DELIM)librtl$(LIBEXT): $(TOPDIR)$(DELIM)drivers$(DELIM)wireless$(DELIM)realtek$(DELIM)librtl$(LIBEXT)
+	$(Q) install $(TOPDIR)$(DELIM)drivers$(DELIM)wireless$(DELIM)realtek$(DELIM)librtl$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)librtl$(LIBEXT)
+endif
+
+# External esp32 wifi static Lib builds
+ifeq ($(CONFIG_ESP32_WIFI_SUPPORT),y)
+$(LIBRARIES_DIR)$(DELIM)libcoexist$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libcoexist$(LIBEXT)
+	$(Q)install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libcoexist$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libcoexist$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libcore$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libcore$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libcore$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libcore$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libespnow$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libespnow$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libespnow$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libespnow$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libmesh$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libmesh$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libmesh$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libmesh$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libnet80211$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libnet80211$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libnet80211$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libnet80211$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libphy$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libphy$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libphy$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libphy$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libpp$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libpp$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libpp$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libpp$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)librtc$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)librtc$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)librtc$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)librtc$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libsmartconfig$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libsmartconfig$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libsmartconfig$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libsmartconfig$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libwpa2$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libwpa2$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libwpa2$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libwpa2$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libwpa$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libwpa$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libwpa$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libwpa$(LIBEXT)
+
+$(LIBRARIES_DIR)$(DELIM)libwps$(LIBEXT): $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libwps$(LIBEXT)
+	$(Q) install $(EXTDIR)$(DELIM)esp_idf_port/esp32$(DELIM)lib$(DELIM)libwps$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libwps$(LIBEXT)
 endif

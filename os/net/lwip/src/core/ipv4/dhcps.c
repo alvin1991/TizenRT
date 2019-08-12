@@ -48,6 +48,7 @@
 /****************************************************************************
  * Included Files
  ****************************************************************************/
+#include <tinyara/config.h>
 #include <net/lwip/opt.h>
 
 #if LWIP_IPV4 && LWIP_DHCP /* don't build if not configured for use in lwipopts.h */
@@ -69,9 +70,17 @@
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-#define DHCPS_LEASE_TIME_DEF  (120)
+
+#if LWIP_IPV6
+#define IN_ADDR_T(ipaddr)   (((ipaddr).u_addr.ip4))
+#else
+#define IN_ADDR_T(ipaddr)   (((ipaddr)))
+#endif
+
+#define DHCPS_LEASE_TIME_DEF    CONFIG_LWIP_DHCPS_LEASE_DEF
 #define DHCPS_LEASE_TIMER       DHCPS_LEASE_TIME_DEF
 #define BOOTP_BROADCAST         0x8000
+#define BOOTP_UNICAST           0X0000
 
 #define DHCPS_STATE_OFFER   1
 #define DHCPS_STATE_DECLINE 2
@@ -85,17 +94,9 @@
 
 #define DHCP_MAX_MSG_LEN_MIN_REQUIRED         576
 
-#ifndef LWIP_DHCPS_SERVER_IP
-#define LWIP_DHCPS_SERVER_IP "192.168.0.1"
-#endif
-
-#ifndef LWIP_DHCPS_SERVER_NETMASK
-#define LWIP_DHCPS_SERVER_NETMASK "255.255.255.0"
-#endif
-
-#ifndef LWIP_DHCPS_MAX_STATION_NUM
-#define LWIP_DHCPS_MAX_STATION_NUM    8
-#endif
+#define LWIP_DHCPS_SERVER_IP CONFIG_LWIP_DHCPS_SERVER_IP
+#define LWIP_DHCPS_SERVER_NETMASK CONFIG_LWIP_DHCPS_SERVER_NETMASK
+#define LWIP_DHCPS_MAX_STATION_NUM CONFIG_LWIP_DHCPS_MAX_STATION_NUM
 
 #define MAX_STATION_NUM LWIP_DHCPS_MAX_STATION_NUM
 
@@ -157,6 +158,7 @@ static struct list_node *plist;
 static bool renew;
 static const _uint8_t magic_cookie[4] = { 0x63, 0x82, 0x53, 0x63 };	//0x63825363; // 99.130.83.99
 
+static dhcp_sta_joined g_dhcp_sta_joined = NULL;
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -205,13 +207,13 @@ static void dhcps_node_insert_to_list(struct list_node **phead, struct list_node
 		pdhcps_node = pinsert->pnode;
 		pdhcps_pool = list->pnode;
 
-		if (pdhcps_node->ip.addr < pdhcps_pool->ip.addr) {
+		if (IN_ADDR_T(pdhcps_node->ip).addr < IN_ADDR_T(pdhcps_pool->ip).addr) {
 			pinsert->pnext = list;
 			*phead = pinsert;
 		} else {
 			while (list->pnext != NULL) {
 				pdhcps_pool = list->pnext->pnode;
-				if (pdhcps_node->ip.addr < pdhcps_pool->ip.addr) {
+				if (IN_ADDR_T(pdhcps_node->ip).addr < IN_ADDR_T(pdhcps_pool->ip).addr) {
 					pinsert->pnext = list->pnext;
 					list->pnext = pinsert;
 					break;
@@ -280,9 +282,9 @@ static uint8_t *dhcps_add_msg_type(uint8_t *optptr, uint8_t type)
  * **/
 static uint8_t *dhcps_add_offer_options(uint8_t *optptr)
 {
-	ip_addr_t ipaddr;
+	ip4_addr_t ipaddr;
 
-	ipaddr.addr = server_address.addr;
+	ipaddr.addr = IN_ADDR_T(server_address).addr;
 
 	*optptr++ = DHCP_OPTION_SUBNET_MASK;
 	*optptr++ = 4;
@@ -346,16 +348,20 @@ static void dhcps_create_msg(struct dhcps_msg *m)
 {
 	ip_addr_t client;
 
-	client.addr = client_address.addr;
+	IN_ADDR_T(client).addr = IN_ADDR_T(client_address).addr;
 
 	m->op = DHCP_OFFER;
 	m->htype = DHCP_HTYPE_ETH;
 	m->hlen = 6;
 	m->hops = 0;
 	m->secs = 0;
+#ifdef CONFIG_LWIP_DHCPS_UNICAST
+	m->flags = htons(BOOTP_UNICAST);
+#else
 	m->flags = htons(BOOTP_BROADCAST);
+#endif
 
-	memcpy(m->yiaddr, &client.addr, sizeof(m->yiaddr));
+	memcpy(m->yiaddr, &IN_ADDR_T(client).addr, sizeof(m->yiaddr));
 	memcpy(m->options, magic_cookie, sizeof(magic_cookie));
 }
 
@@ -406,7 +412,14 @@ static void dhcps_send_msg(struct dhcps_msg *m, u8_t msg_type)
 		return;
 	}
 
-	if (udp_sendto(pcb_dhcps, p, &broadcast_dhcps, DHCP_CLIENT_PORT) != ERR_OK) {
+	ip_addr_t ip_temp = IPADDR4_INIT(0x0);
+#ifdef CONFIG_LWIP_DHCPS_UNICAST
+	memcpy(&(IN_ADDR_T(ip_temp).addr), m->yiaddr, sizeof(m->yiaddr));
+#else
+	ip4_addr_set(ip_2_ip4(&ip_temp), &(IN_ADDR_T(broadcast_dhcps)));
+#endif
+
+	if (udp_sendto(pcb_dhcps, p, &ip_temp, DHCP_CLIENT_PORT) != ERR_OK) {
 		LWIP_DEBUGF(DHCP_DEBUG, ("dhcps_send_msg(): udp_sendto failed\n"));
 	}
 
@@ -432,7 +445,7 @@ static uint8_t dhcps_parse_options(uint8_t *optptr, int16_t len)
 
 	struct dhcps_state s;
 
-	client.addr = client_address.addr;
+	IN_ADDR_T(client).addr = IN_ADDR_T(client_address).addr;
 	end = optptr + len;
 	s.state = DHCPS_STATE_IDLE;
 
@@ -443,7 +456,7 @@ static uint8_t dhcps_parse_options(uint8_t *optptr, int16_t len)
 			type = *(optptr + 2);
 			break;
 		case DHCP_OPTION_REQUESTED_IP:
-			if (memcmp((char *)&client.addr, (char *)optptr + 2, 4) == 0) {
+			if (memcmp((char *)&IN_ADDR_T(client).addr, (char *)optptr + 2, 4) == 0) {
 				LWIP_DEBUGF(DHCP_DEBUG, ("parse_options(): DHCP_OPTION_REQUESTED_IP = 0 ok\n"));
 				s.state = DHCPS_STATE_ACK;
 			} else {
@@ -522,45 +535,45 @@ static int16_t dhcps_parse_msg(struct dhcps_msg *m, u16_t len)
 
 	LWIP_DEBUGF(DHCP_DEBUG, ("parse_msg(): dhcp msg len=%d\n", len));
 
-	first_address.addr = dhcps_lease.start_ip.addr;
-	client_address.addr = client_address_plus.addr;
+	IN_ADDR_T(first_address).addr = IN_ADDR_T(dhcps_lease.start_ip).addr;
+	IN_ADDR_T(client_address).addr = IN_ADDR_T(client_address_plus).addr;
 	renew = false;
 
 	for (pback_node = plist; pback_node != NULL; pback_node = pback_node->pnext) {
 		pdhcps_pool = pback_node->pnode;
 		if (memcmp(pdhcps_pool->mac, m->chaddr, sizeof(pdhcps_pool->mac)) == 0) {
-			if (memcmp(&pdhcps_pool->ip.addr, m->ciaddr, sizeof(pdhcps_pool->ip.addr)) == 0) {
+			if (memcmp(&IN_ADDR_T(pdhcps_pool->ip).addr, m->ciaddr, sizeof(IN_ADDR_T(pdhcps_pool->ip).addr)) == 0) {
 				renew = true;
 			}
-			client_address.addr = pdhcps_pool->ip.addr;
+			IN_ADDR_T(client_address).addr = IN_ADDR_T(pdhcps_pool->ip).addr;
 			pdhcps_pool->lease_timer = DHCPS_LEASE_TIMER;
 			pnode = pback_node;
 
 			goto POOL_CHECK;
-		} else if (pdhcps_pool->ip.addr == client_address_plus.addr) {
-			addr_tmp.addr = htonl(client_address_plus.addr);
-			addr_tmp.addr++;
-			client_address_plus.addr = htonl(addr_tmp.addr);
-			client_address.addr = client_address_plus.addr;
+		} else if (IN_ADDR_T(pdhcps_pool->ip).addr == IN_ADDR_T(client_address_plus).addr) {
+			IN_ADDR_T(addr_tmp).addr = htonl(IN_ADDR_T(client_address_plus).addr);
+			IN_ADDR_T(addr_tmp).addr++;
+			IN_ADDR_T(client_address_plus).addr = htonl(IN_ADDR_T(addr_tmp).addr);
+			IN_ADDR_T(client_address).addr = IN_ADDR_T(client_address_plus).addr;
 		}
 
 		if (flag == false) {	// search the fisrt unused ip
-			if (first_address.addr < pdhcps_pool->ip.addr) {
+			if (IN_ADDR_T(first_address).addr < IN_ADDR_T(pdhcps_pool->ip).addr) {
 				flag = true;
 			} else {
-				addr_tmp.addr = htonl(first_address.addr);
-				addr_tmp.addr++;
-				first_address.addr = htonl(addr_tmp.addr);
+				IN_ADDR_T(addr_tmp).addr = htonl(IN_ADDR_T(first_address).addr);
+				IN_ADDR_T(addr_tmp).addr++;
+				IN_ADDR_T(first_address).addr = htonl(IN_ADDR_T(addr_tmp).addr);
 			}
 		}
 	}
 
-	if (client_address_plus.addr > dhcps_lease.end_ip.addr) {
-		client_address.addr = first_address.addr;
+	if (IN_ADDR_T(client_address_plus).addr > IN_ADDR_T(dhcps_lease.end_ip).addr) {
+		IN_ADDR_T(client_address).addr = IN_ADDR_T(first_address).addr;
 	}
 
-	if (client_address.addr > dhcps_lease.end_ip.addr) {
-		client_address_plus.addr = dhcps_lease.start_ip.addr;
+	if (IN_ADDR_T(client_address).addr > IN_ADDR_T(dhcps_lease.end_ip).addr) {
+		IN_ADDR_T(client_address_plus).addr = IN_ADDR_T(dhcps_lease.start_ip).addr;
 		pdhcps_pool = NULL;
 		pnode = NULL;
 	} else {
@@ -568,9 +581,16 @@ static int16_t dhcps_parse_msg(struct dhcps_msg *m, u16_t len)
 		if (pdhcps_pool == NULL) {
 			return 0;
 		}
-		pdhcps_pool->ip.addr = client_address.addr;
+		IN_ADDR_T(pdhcps_pool->ip).addr = IN_ADDR_T(client_address).addr;
 		memcpy(pdhcps_pool->mac, m->chaddr, sizeof(pdhcps_pool->mac));
 		pdhcps_pool->lease_timer = DHCPS_LEASE_TIMER;
+
+#ifdef CONFIG_LWIP_DHCPS_UNICAST
+		// update ARP table to send unicast
+		struct eth_addr mac;
+		memcpy(&mac.addr, pdhcps_pool->mac, ETH_HWADDR_LEN);
+		etharp_add_static_entry(&(IN_ADDR_T(pdhcps_pool->ip)), &mac);
+#endif
 
 		pnode = (struct list_node *)mem_malloc(sizeof(struct list_node));
 		if (pnode == NULL) {
@@ -580,17 +600,17 @@ static int16_t dhcps_parse_msg(struct dhcps_msg *m, u16_t len)
 		pnode->pnext = NULL;
 		dhcps_node_insert_to_list(&plist, pnode);
 
-		if (client_address.addr == dhcps_lease.end_ip.addr) {
-			client_address_plus.addr = dhcps_lease.start_ip.addr;
+		if (IN_ADDR_T(client_address).addr == IN_ADDR_T(dhcps_lease.end_ip).addr) {
+			IN_ADDR_T(client_address_plus).addr = IN_ADDR_T(dhcps_lease.start_ip).addr;
 		} else {
-			addr_tmp.addr = htonl(client_address.addr);
-			addr_tmp.addr++;
-			client_address_plus.addr = htonl(addr_tmp.addr);
+			IN_ADDR_T(addr_tmp).addr = htonl(IN_ADDR_T(client_address).addr);
+			IN_ADDR_T(addr_tmp).addr++;
+			IN_ADDR_T(client_address_plus).addr = htonl(IN_ADDR_T(addr_tmp).addr);
 		}
 	}
 
 POOL_CHECK:
-	if ((client_address.addr > dhcps_lease.end_ip.addr) || (ip_addr_isany(&client_address))) {
+	if ((IN_ADDR_T(client_address).addr > IN_ADDR_T(dhcps_lease.end_ip).addr) || (ip_addr_isany(&client_address))) {
 		if (pnode != NULL) {
 			dhcps_node_remove_from_list(&plist, pnode);
 			mem_free(pnode);
@@ -604,7 +624,11 @@ POOL_CHECK:
 		return DHCPS_STATE_NAK;
 	}
 
-	LWIP_DEBUGF(DHCP_DEBUG, ("Assigned client IP address %u.%u.%u.%u\n", (unsigned char)((htonl(client_address.addr) >> 24) & 0xff), (unsigned char)((htonl(client_address.addr) >> 16) & 0xff), (unsigned char)((htonl(client_address.addr) >> 8) & 0xff), (unsigned char)((htonl(client_address.addr) >> 0) & 0xff)));
+	LWIP_DEBUGF(DHCP_DEBUG, ("Assigned client IP address %u.%u.%u.%u\n",
+							 (unsigned char)((htonl(IN_ADDR_T(client_address)) >> 24) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(client_address)) >> 16) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(client_address)) >> 8) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(client_address)) >> 0) & 0xff)));
 
 	ret = dhcps_parse_options(&m->options[4], len);
 
@@ -639,16 +663,20 @@ POOL_CHECK:
 static void dhcps_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port)
 {
 	int16_t tlen = 0;
-
-	u16_t i = 0;
 	u16_t dhcps_msg_cnt = 0;
 	u8_t *p_dhcps_msg = NULL;
 	u8_t *data = NULL;
 
 	//struct netif *netif = (struct netif *)arg;
 	struct dhcps_msg *pmsg_dhcps = NULL;
-
-	LWIP_DEBUGF(DHCP_DEBUG, ("handle_dhcp(pbuf = %p) from DHCP client %" U16_F ".%" U16_F ".%" U16_F ".%" U16_F " port %" U16_F "\n", (void *)p, ip4_addr1_16(addr), ip4_addr2_16(addr), ip4_addr3_16(addr), ip4_addr4_16(addr), port));
+//ip4_addr4_16
+	LWIP_DEBUGF(DHCP_DEBUG, ("handle_dhcp(pbuf = %p) from DHCP client %" U16_F ".%" U16_F ".%" U16_F ".%" U16_F " port %" U16_F "\n",
+							 (void *)p,
+							 ((char *)(&((IN_ADDR_T(*addr)).addr)))[0],
+							 ((char *)(&((IN_ADDR_T(*addr)).addr)))[1],
+							 ((char *)(&((IN_ADDR_T(*addr)).addr)))[2],
+							 ((char *)(&((IN_ADDR_T(*addr)).addr)))[3],
+							 port));
 	LWIP_DEBUGF(DHCP_DEBUG, ("pbuf->len = %" U16_F "\n", p->len));
 	LWIP_DEBUGF(DHCP_DEBUG, ("pbuf->tot_len = %" U16_F "\n", p->tot_len));
 
@@ -665,17 +693,16 @@ static void dhcps_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_
 
 	LWIP_DEBUGF(DHCP_DEBUG, ("handle_dhcp(): msg tot_len=%d, len=%d\n", tlen, p->len));
 
-	for (i = 0; i < (p->len); i++) {
-		p_dhcps_msg[dhcps_msg_cnt++] = data[i];
-	}
+	memcpy(&p_dhcps_msg[dhcps_msg_cnt], data, p->len);
+	dhcps_msg_cnt = p->len;
 
 	if (p->next != NULL) {
 		LWIP_DEBUGF(DHCP_DEBUG, ("handle_dhcp(): next msg tot_len=%d, len=%d\n", p->next->tot_len, p->next->len));
 
 		data = p->next->payload;
-		for (i = 0; i < (p->next->len); i++) {
-			p_dhcps_msg[dhcps_msg_cnt++] = data[i];
-		}
+
+		memcpy(&p_dhcps_msg[dhcps_msg_cnt], data, p->len);
+		dhcps_msg_cnt += p->len;
 	}
 
 	LWIP_DEBUGF(DHCP_DEBUG, ("handle_dhcp(): parse_msg\n"));
@@ -688,6 +715,15 @@ static void dhcps_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_
 	case DHCPS_STATE_ACK:		//3
 		LWIP_DEBUGF(DHCP_DEBUG, ("handle_dhcp(): DHCPD_STATE_ACK\n"));
 		dhcps_send_msg(pmsg_dhcps, DHCP_ACK);
+
+		if (g_dhcp_sta_joined) {
+			LWIP_DEBUGF(DHCP_DEBUG, ("station join done: callback\n"));
+			dhcp_node_s node;
+			memcpy(&node.ipaddr, pmsg_dhcps->yiaddr, sizeof(pmsg_dhcps->yiaddr));
+			memcpy(&node.macaddr, pmsg_dhcps->chaddr, 6);
+
+			g_dhcp_sta_joined(DHCP_ACK_EVT, (void *)&node);
+		}
 		break;
 	case DHCPS_STATE_NAK:		//4
 		LWIP_DEBUGF(DHCP_DEBUG, ("handle_dhcp(): DHCPD_STATE_NAK\n"));
@@ -749,9 +785,27 @@ static void kill_oldest_dhcps_pool(void)
 #endif
 
 /**
+ * @fn dhcps_register_cb
+ * @brief register dhcp server connection callback
+ * @param netif, callback
+ * @return err_t
+ * @section
+ * **/
+err_t dhcps_register_cb(dhcp_sta_joined dhcp_join_cb)
+{
+	g_dhcp_sta_joined = NULL;
+	if (dhcp_join_cb) {
+		g_dhcp_sta_joined = dhcp_join_cb;
+		LWIP_DEBUGF(DHCP_DEBUG, ("dhcps_register_cb(): link callback\n"));
+		return ERR_OK;
+	}
+	return ERR_ARG;
+}
+
+/**
  * @fn dhcps_start
  * @brief start DHCP server
- * @param info
+ * @param info, callback
  * @return void
  * @section
  * **/
@@ -767,7 +821,11 @@ err_t dhcps_start(struct netif *netif)
 	}
 
 	dhcps = netif->dhcps_pcb;
-	LWIP_DEBUGF(DHCP_DEBUG, ("dhcps_start (netif=%p) %c%c%" U16_F "\n", (void *)netif, netif->name[0], netif->name[1], (u16_t) netif->num));
+	LWIP_DEBUGF(DHCP_DEBUG, ("dhcps_start (netif=%p) %c%c%" U16_F "\n",
+							 (void *)netif,
+							 netif->name[0],
+							 netif->name[1],
+							 (u16_t) netif->num));
 
 	/* check hwtype of the netif */
 	if ((netif->flags & NETIF_FLAG_ETHARP) == 0) {
@@ -801,41 +859,51 @@ err_t dhcps_start(struct netif *netif)
 
 	pcb_dhcps = dhcps;
 
-	if (netif->ip_addr.addr == 0) {
-		netif->ip_addr.addr = inet_addr(LWIP_DHCPS_SERVER_IP);
+	if (IN_ADDR_T(netif->ip_addr).addr == 0) {
+		IN_ADDR_T(netif->ip_addr).addr = inet_addr(LWIP_DHCPS_SERVER_IP);
 	}
 
-	if (netif->gw.addr == 0) {
-		netif->gw.addr = inet_addr(LWIP_DHCPS_SERVER_IP);
+	if (IN_ADDR_T(netif->gw).addr == 0) {
+		IN_ADDR_T(netif->gw).addr = inet_addr(LWIP_DHCPS_SERVER_IP);
 	}
 
 	server_address = netif->ip_addr;
 
-	if (netif->netmask.addr == 0) {
-		netif->netmask.addr = inet_addr(LWIP_DHCPS_SERVER_NETMASK);
+	if (IN_ADDR_T(netif->netmask).addr == 0) {
+		IN_ADDR_T(netif->netmask).addr = inet_addr(LWIP_DHCPS_SERVER_NETMASK);
 	}
 
-	ipaddr_tmp = htonl(netif->ip_addr.addr);
-	broadcast_dhcps.addr = htonl(ipaddr_tmp | 0xff);
+	ipaddr_tmp = htonl(IN_ADDR_T(netif->ip_addr).addr);
+	IN_ADDR_T(broadcast_dhcps).addr = htonl(ipaddr_tmp | 0xff);
 
-	dhcps_lease.start_ip.addr = htonl(ipaddr_tmp + 1);;
-	dhcps_lease.end_ip.addr = htonl(ipaddr_tmp + MAX_STATION_NUM);;
+	IN_ADDR_T(dhcps_lease.start_ip).addr = htonl(ipaddr_tmp + 1);
+	IN_ADDR_T(dhcps_lease.end_ip).addr = htonl(ipaddr_tmp + MAX_STATION_NUM);
 
-#if 0
-	broadcast_dhcps.addr = inet_addr("192.168.0.255");
+	IN_ADDR_T(client_address_plus).addr = IN_ADDR_T(dhcps_lease.start_ip).addr;
 
-	dhcps_lease.start_ip.addr = inet_addr("192.168.0.10");
-	dhcps_lease.end_ip.addr = inet_addr("192.168.0.20");
-#endif
-	client_address_plus.addr = dhcps_lease.start_ip.addr;
+	LWIP_DEBUGF(DHCP_DEBUG, ("Server IP address set %u.%u.%u.%u\n",
+							 (unsigned char)((htonl(IN_ADDR_T(server_address).addr) >> 24) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(server_address).addr) >> 16) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(server_address).addr) >> 8) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(server_address).addr) >> 0) & 0xff)));
 
-	LWIP_DEBUGF(DHCP_DEBUG, ("Server IP address set %u.%u.%u.%u\n", (unsigned char)((htonl(server_address.addr) >> 24) & 0xff), (unsigned char)((htonl(server_address.addr) >> 16) & 0xff), (unsigned char)((htonl(server_address.addr) >> 8) & 0xff), (unsigned char)((htonl(server_address.addr) >> 0) & 0xff)));
+	LWIP_DEBUGF(DHCP_DEBUG, ("Broadcast IP address set %u.%u.%u.%u\n",
+							 (unsigned char)((htonl(IN_ADDR_T(broadcast_dhcps).addr) >> 24) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(broadcast_dhcps).addr) >> 16) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(broadcast_dhcps).addr) >> 8) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(broadcast_dhcps).addr) >> 0) & 0xff)));
 
-	LWIP_DEBUGF(DHCP_DEBUG, ("Broadcast IP address set %u.%u.%u.%u\n", (unsigned char)((htonl(broadcast_dhcps.addr) >> 24) & 0xff), (unsigned char)((htonl(broadcast_dhcps.addr) >> 16) & 0xff), (unsigned char)((htonl(broadcast_dhcps.addr) >> 8) & 0xff), (unsigned char)((htonl(broadcast_dhcps.addr) >> 0) & 0xff)));
+	LWIP_DEBUGF(DHCP_DEBUG, ("Start IP address set %u.%u.%u.%u\n",
+							 (unsigned char)((htonl(IN_ADDR_T(dhcps_lease.start_ip).addr) >> 24) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(dhcps_lease.start_ip).addr) >> 16) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(dhcps_lease.start_ip).addr) >> 8) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(dhcps_lease.start_ip).addr) >> 0) & 0xff)));
 
-	LWIP_DEBUGF(DHCP_DEBUG, ("Start IP address set %u.%u.%u.%u\n", (unsigned char)((htonl(dhcps_lease.start_ip.addr) >> 24) & 0xff), (unsigned char)((htonl(dhcps_lease.start_ip.addr) >> 16) & 0xff), (unsigned char)((htonl(dhcps_lease.start_ip.addr) >> 8) & 0xff), (unsigned char)((htonl(dhcps_lease.start_ip.addr) >> 0) & 0xff)));
-
-	LWIP_DEBUGF(DHCP_DEBUG, ("End IP address set %u.%u.%u.%u\n", (unsigned char)((htonl(dhcps_lease.end_ip.addr) >> 24) & 0xff), (unsigned char)((htonl(dhcps_lease.end_ip.addr) >> 16) & 0xff), (unsigned char)((htonl(dhcps_lease.end_ip.addr) >> 8) & 0xff), (unsigned char)((htonl(dhcps_lease.end_ip.addr) >> 0) & 0xff)));
+	LWIP_DEBUGF(DHCP_DEBUG, ("End IP address set %u.%u.%u.%u\n",
+							 (unsigned char)((htonl(IN_ADDR_T(dhcps_lease.end_ip).addr) >> 24) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(dhcps_lease.end_ip).addr) >> 16) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(dhcps_lease.end_ip).addr) >> 8) & 0xff),
+							 (unsigned char)((htonl(IN_ADDR_T(dhcps_lease.end_ip).addr) >> 0) & 0xff)));
 
 	ip_set_option(pcb_dhcps, SOF_BROADCAST);
 

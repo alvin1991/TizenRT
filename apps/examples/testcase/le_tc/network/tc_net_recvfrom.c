@@ -59,32 +59,6 @@ void tc_net_recvfrom_p(int fd)
 }
 
 /**
-   * @testcase		   :tc_net_recvfrom_sock_n
-   * @brief		   :negative testcase using udp
-   * @scenario		   :
-   * @apicovered	   :recvfrom()
-   * @precondition	   :
-   * @postcondition	   :
-   */
-void tc_net_recvfrom_sock_n(void)
-{
-	char buffer[MAXRCVLEN];
-	struct sockaddr_storage serverStorage;
-	socklen_t addr_size;
-	int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_UDP);
-	if (fd < 0) {
-		printf("socket fail %s:%d", __FUNCTION__, __LINE__);
-		return;
-	}
-	int ret = recvfrom(fd, buffer, MAXRCVLEN, 0, (struct sockaddr *)&serverStorage, &addr_size);
-
-	TC_ASSERT_EQ_CLEANUP("recvfrom", ret, -1, close(fd));
-	TC_SUCCESS_RESULT();
-	close(fd);
-
-}
-
-/**
    * @testcase		   :tc_net_recvfrom_n
    * @brief		   :negative testcase using udp
    * @scenario		   :
@@ -113,12 +87,11 @@ void tc_net_recvfrom_n(int fd)
    * Postconditions        :
    * @return               :void *
    */
-
 void *recvfrom_udpserver(void *args)
 {
 	struct sockaddr_in sa;
-	int SocketFD = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (SocketFD < 0) {
+	int socket_fd = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	if (socket_fd < 0) {
 		printf("socket fail %s :%d\n", __FUNCTION__, __LINE__);
 		return 0;
 	}
@@ -129,17 +102,16 @@ void *recvfrom_udpserver(void *args)
 	sa.sin_port = htons(PORTNUM);
 	sa.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-	int ret = bind(SocketFD, (struct sockaddr *)&sa, sizeof(sa));
+	int ret = bind(socket_fd, (struct sockaddr *)&sa, sizeof(sa));
 	if (ret < 0) {
 		printf("bind fail %s:%d", __FUNCTION__, __LINE__);
-		close(SocketFD);
+		close(socket_fd);
 		return 0;
 	}
 
-	tc_net_recvfrom_p(SocketFD);
-	tc_net_recvfrom_sock_n();
-	tc_net_recvfrom_n(SocketFD);
-	close(SocketFD);
+	tc_net_recvfrom_p(socket_fd);
+	tc_net_recvfrom_n(socket_fd);
+	close(socket_fd);
 
 	return 0;
 
@@ -304,50 +276,57 @@ void *recvfrom_tcpserver(void *args)
 
 	char *msg = "Hello World !\n";
 	struct sockaddr_in sa;
-	int SocketFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (SocketFD < 0) {
+	int socket_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (socket_fd < 0) {
 		printf("Socket creation fail %s:%d\n", __FUNCTION__,  __LINE__);
 		return 0;
 	}
+
+	if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int)) < 0) {
+		printf("setsockopt(SO_REUSEADDR) failed %s:%d:%d\n", __FUNCTION__, __LINE__, errno);
+		close(socket_fd);
+		return 0;
+	}
+
 	memset(&sa, 0, sizeof(sa));
 
 	sa.sin_family = PF_INET;
 	sa.sin_port = htons(PORTNUM);
 	sa.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-	int ret = bind(SocketFD, (struct sockaddr *)&sa, sizeof(sa));
+	int ret = bind(socket_fd, (struct sockaddr *)&sa, sizeof(sa));
 	if (ret < 0) {
-		close(SocketFD);
+		close(socket_fd);
 		printf("fail %s:%d\n", __FUNCTION__, __LINE__);
 		return 0;
 	}
 
-	ret = listen(SocketFD, 1);
+	ret = listen(socket_fd, 1);
 	if (ret < 0) {
-		close(SocketFD);
+		close(socket_fd);
 		printf("fail %s:%d\n", __FUNCTION__, __LINE__);
 		return 0;
 	}
 
 	recvfrom_signal();
-	int ConnectFD = accept(SocketFD, NULL, NULL);
-	if (ConnectFD < 0) {
+	int connect_fd = accept(socket_fd, NULL, NULL);
+	if (connect_fd < 0) {
 		printf("accept error (%s) line:%d\n", __FUNCTION__, __LINE__);
-		close(SocketFD);
+		close(socket_fd);
 		return 0;
 	}
 
 	int i;
 	for (i = 0; i < 4; i++) {
-		ret = sendto(ConnectFD, msg, strlen(msg), 0, (struct sockaddr *)&sa, sizeof(sa));
+		ret = sendto(connect_fd, msg, strlen(msg), 0, (struct sockaddr *)&sa, sizeof(sa));
 		if (ret < 0) {
 			printf("sendto fail %s:%d", __FUNCTION__, __LINE__);
 		}
 	}
 
-	close(ConnectFD);
+	close(connect_fd);
 
-	close(SocketFD);
+	close(socket_fd);
 	return 0;
 }
 

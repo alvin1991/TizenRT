@@ -16,66 +16,29 @@
  *
  ******************************************************************/
 
+#include <tinyara/config.h>
 #include <functional>
 #include <debug.h>
 #include "PlayerObserverWorker.h"
 
+#ifndef CONFIG_MEDIA_PLAYER_OBSERVER_STACKSIZE
+#define CONFIG_MEDIA_PLAYER_OBSERVER_STACKSIZE 2048
+#endif
+
 namespace media {
-PlayerObserverWorker::PlayerObserverWorker() : mRefCnt{0}, mIsRunning(false)
+PlayerObserverWorker::PlayerObserverWorker()
 {
+	mThreadName = "PlayerObserverWorker";
+	mStacksize = CONFIG_MEDIA_PLAYER_OBSERVER_STACKSIZE;
 }
 
 PlayerObserverWorker::~PlayerObserverWorker()
 {
 }
 
-PlayerObserverWorker& PlayerObserverWorker::getWorker()
+PlayerObserverWorker &PlayerObserverWorker::getWorker()
 {
 	static PlayerObserverWorker worker;
 	return worker;
-}
-
-int PlayerObserverWorker::entry()
-{
-	while (mIsRunning) {
-		std::function<void()> run = mObserverQueue.deQueue();
-		medvdbg("PlayerObserverWorker::entry() - pop Queue\n");
-		if (run != nullptr) {
-			run();
-		}
-	}
-	return 0;
-}
-
-player_result_t PlayerObserverWorker::startWorker()
-{
-	std::lock_guard<std::mutex> lock(mRefMtx);
-	medvdbg("PlayerObserverWorker : startWorker\n");
-	if (++mRefCnt == 1) {
-		medvdbg("PlayerObserverWorker : create thread\n");
-		mIsRunning = true;
-		mWorkerThread = std::thread(std::bind(&PlayerObserverWorker::entry, this));
-	}
-
-	return PLAYER_OK;
-}
-
-void PlayerObserverWorker::stopWorker()
-{
-	std::lock_guard<std::mutex> lock(mRefMtx);
-	medvdbg("PlayerObserverWorker : stopWorker\n");
-	if (--mRefCnt <= 0) {
-		medvdbg("PlayerObserverWorker : join thread\n");
-		std::atomic<bool> &refBool = mIsRunning;
-		mObserverQueue.enQueue([&refBool]() {
-			refBool = false;
-		});
-		mWorkerThread.join();
-	}
-}
-
-MediaQueue& PlayerObserverWorker::getQueue()
-{
-	return mObserverQueue;
 }
 } // namespace media

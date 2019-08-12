@@ -94,7 +94,15 @@
 #define _FOTABASE       (0x1900)	/* FOTA ioctl commands */
 #define _GPIOBASE       (0x2000)	/* GPIO ioctl commands */
 #define _TMBASE         (0x2100)	/* Task Management ioctl commands */
-#define _TESTIOCBASE (0xfe00)	/* KERNEL TEST DRV module ioctl commands */
+#define _HEAPINFOBASE   (0x2200)	/* Heapinfo ioctl commands */
+#define _SPIBASE        (0x2300)	/* SPI ioctl commands */
+#define _LWNLIOCBASE    (0x2400)	/* LWNL ioctl commands */
+#define _SECLINKBASE    (0x2500)	/* seclink ioctl commands */
+#define _IOTBUSBASE     (0x2600)	/* iotbus ioctl commands */
+#define _FBIOCBASE      (0x2700)	/* Frame buffer character driver ioctl commands */
+#define _TESTIOCBASE    (0xfe00)	/* KERNEL TEST DRV module ioctl commands */
+
+
 
 /* boardctl() commands share the same number space */
 #define _BOARDBASE      (0xff00)	/* boardctl commands */
@@ -257,6 +265,11 @@
 #define _ARPIOCVALID(c)   (_IOC_TYPE(c) == _ARPIOCBASE)
 #define _ARPIOC(nr)       _IOC(_ARPIOCBASE, nr)
 
+/* TinyAra touchscreen ioctl definitions (see include/tinyara/input/touchscreen.h) ******/
+
+#define _TSIOCVALID(c)    (_IOC_TYPE(c) == _TSIOCBASE)
+#define _TSIOC(nr)        _IOC(_TSIOCBASE, nr)
+
 /* TinyAra sensor ioctl definitions (see include/tinyara/sensor/xxx.h) ******************/
 
 #define _SNIOCVALID(c)    (_IOC_TYPE(c) == _SNIOCBASE)
@@ -300,6 +313,11 @@
 #define _AUDIOIOCVALID(c) (_IOC_TYPE(c) == _AUDIOIOCBASE)
 #define _AUDIOIOC(nr)     _IOC(_AUDIOIOCBASE, nr)
 
+/* Frame buffer character drivers *******************************************/
+
+#define _FBIOCVALID(c)    (_IOC_TYPE(c) == _FBIOCBASE)
+#define _FBIOC(nr)        _IOC(_FBIOCBASE, nr)
+
 /* Application Config Data driver ioctl definitions *************************/
 /* (see include/tinyara/configdata.h */
 
@@ -342,10 +360,24 @@
 #define _GPIOIOCVALID(c)   (_IOC_TYPE(c) == _GPIOBASE)
 #define _GPIOIOC(nr)       _IOC(_GPIOBASE, nr)
 
+/* SPI driver ioctl definitions ********************************************/
+/* (see include/tinyara/spi/spi.h */
+#define _SPIIOCVALID(c)   (_IOC_TYPE(c) == _SPIBASE)
+#define _SPIIOC(nr)       _IOC(_SPIBASE, nr)
+
 /* boardctl() command definitions *******************************************/
 #define _BOARDIOCVALID(c)  (_IOC_TYPE(c) == _BOARDBASE)
 #define _BOARDIOC(nr)      _IOC(_BOARDBASE, nr)
 
+/* seclink driver ioctl definitions ********************************************/
+/* (see include/tinyara/seclink.h */
+#define _SECLINKIOCVALID(c)   (_IOC_TYPE(c) == _SECLINKBASE)
+#define _SECLINKIOC(nr)       _IOC(_SECLINKBASE, nr)
+
+/* iotbus driver ioctl definitions ********************************************/
+/* (see include/tinyara/iotbus_sig.h */
+#define _IOTBUSIOCVALID(c)   (_IOC_TYPE(c) == _IOTBUSBASE)
+#define _IOTBUSIOC(nr)       _IOC(_IOTBUSBASE, nr)
 
 /* Kernel_tc driver ioctl definitions *************************************/
 /* (see tinyara/testcase_drv.h) */
@@ -358,20 +390,32 @@
 #define _TMIOCVALID(c)   (_IOC_TYPE(c) == _TMBASE)
 #define _TMIOC(nr)       _IOC(_TMBASE, nr)
 
-#define TMIOC_REGISTER_TASK        _TMIOC(0x0001)
-#define TMIOC_REGISTER_THREAD      _TMIOC(0x0002)
-#define TMIOC_START                _TMIOC(0x0003)
-#define TMIOC_TERMINATE            _TMIOC(0x0004)
-#define TMIOC_RESTART              _TMIOC(0x0005)
-#define TMIOC_PAUSE                _TMIOC(0x0006)
-#define TMIOC_RESUME               _TMIOC(0x0007)
-#define TMIOC_SCAN                 _TMIOC(0x0008)
-#define TMIOC_UNICAST              _TMIOC(0x0009)
-#define TMIOC_BROADCAST            _TMIOC(0x000A)
-#define TMIOC_SCAN_NAME            _TMIOC(0x000B)
-#define TMIOC_SCAN_HANDLE          _TMIOC(0x000C)
-#define TMIOC_SCAN_GROUP           _TMIOC(0x000D)
-#define TMIOC_UNREGISTER_TASK      _TMIOC(0x000E)
+#define TMIOC_START                _TMIOC(0x0001)
+#define TMIOC_PAUSE                _TMIOC(0x0002)
+#define TMIOC_RESUME               _TMIOC(0x0003)
+#define TMIOC_UNICAST              _TMIOC(0x0004)
+#define TMIOC_BROADCAST            _TMIOC(0x0005)
+#define TMIOC_CHECK_ALIVE          _TMIOC(0x0006)
+#define TMIOC_TERMINATE            _TMIOC(0x0007)
+#if defined(HAVE_TASK_GROUP) && !defined(CONFIG_DISABLE_PTHREAD)
+#define TMIOC_PTHREAD_PARENT       _TMIOC(0x0008)
+#endif
+
+/* Heapinfo driver ioctl definitions ******************************************/
+#define _HEAPINFOIOCVALID(c)   (_IOC_TYPE(c) == _HEAPINFOBASE)
+#define _HEAPINFOIOC(nr)       _IOC(_HEAPINFOBASE, nr)
+
+#define HEAPINFOIOC_PARSE             _HEAPINFOIOC(0x0001)
+#define HEAPINFOIOC_NREGION           _HEAPINFOIOC(0x0002)
+#define HEAPINFOIOC_PPID              _HEAPINFOIOC(0x0003)
+#define HEAPINFOIOC_STKSIZE           _HEAPINFOIOC(0x0004)
+#define HEAPINFOIOC_TASKNAME          _HEAPINFOIOC(0x0005)
+
+/* Audio driver ioctl definitions *************************************/
+/* (see tinyara/audio/audio.h) */
+
+#define _LWNLIOCVALID(c) (_IOC_TYPE(c) == _LWNLIOCBASE)
+#define _LWNLIOC(nr)     _IOC(_LWNLIOCBASE, nr)
 
 /****************************************************************************
  * Public Type Definitions

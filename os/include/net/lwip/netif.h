@@ -314,6 +314,7 @@ struct netif {
 #if LWIP_IPV6_SEND_ROUTER_SOLICIT
 	/** Number of Router Solicitation messages that remain to be sent. */
 	u8_t rs_count;
+	u16_t rs_interval;
 #endif							/* LWIP_IPV6_SEND_ROUTER_SOLICIT */
 #if LWIP_NETIF_HOSTNAME
 	/* the hostname for this netif, NULL is a valid value */
@@ -390,11 +391,8 @@ struct netif {
 #else
 	u8_t d_buf[MAX_NET_DEV_MTU + CONFIG_NET_GUARDSIZE];
 #endif
-#if LWIP_DHCP
-	struct dhcp *dhcp;
 #if LWIP_DHCPS
 	struct udp_pcb *dhcps_pcb;
-#endif
 #endif
 };
 

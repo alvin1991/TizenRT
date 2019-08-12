@@ -67,6 +67,8 @@ struct _iotbus_spi_s;
  */
 typedef struct _iotbus_spi_wrapper_s *iotbus_spi_context_h;
 
+typedef void (*iotbus_spi_cb)(iotbus_spi_context_h);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -85,6 +87,21 @@ extern "C" {
  * @since TizenRT v1.0
  */
 iotbus_spi_context_h iotbus_spi_open(unsigned int bus, const struct iotbus_spi_config_s *config);
+
+/**
+ * @brief initializes spi_context.
+ *
+ * @details @b #include <iotbus/iotbus_spi.h>
+ * @param[in] hnd handle of spi_context
+ * @param[in] config spi config
+ *                   - config->bits_per_word : bits per word
+ *                   - config->chip_select : chip select number
+ *                   - config->frequency : frequency in Hz
+ *                   - config->mode : spi mode
+ * @return On success, handle of spi_context is returned. On failure, NULL is returned.
+ * @since TizenRT v2.0
+ */
+int iotbus_spi_set_config(iotbus_spi_context_h hnd, const struct iotbus_spi_config_s *config);
 
 /**
  * @brief writes data over spi bus.

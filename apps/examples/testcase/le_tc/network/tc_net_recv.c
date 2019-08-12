@@ -36,7 +36,7 @@
 
 #define PORTNUM 1109
 #define MAXRCVLEN 20
-int mutex = 0;
+static int mutex = 0;
 /**
    * @fn                   :recv_wait
    * @brief                :function to wait on semaphore
@@ -157,7 +157,18 @@ void *recv_server(void *args)
 
 	char *msg = "Hello World !\n";
 	struct sockaddr_in sa;
-	int SocketFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+	int socket_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+	if (socket_fd < 0) {
+		printf("error %s:%d\n", __FUNCTION__, __LINE__);
+		return 0;
+	}
+
+	if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &(int){ 1 }, sizeof(int)) < 0) {
+		printf("setsockopt(SO_REUSEADDR) failed %s:%d:%d\n", __FUNCTION__, __LINE__, errno);
+		close(socket_fd);
+		return 0;
+	}
 
 	memset(&sa, 0, sizeof(sa));
 
@@ -165,37 +176,51 @@ void *recv_server(void *args)
 	sa.sin_port = htons(PORTNUM);
 	sa.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-	int ret = bind(SocketFD, (struct sockaddr *)&sa, sizeof(sa));
+	int ret = bind(socket_fd, (struct sockaddr *)&sa, sizeof(sa));
 	if (ret < 0) {
 		printf("error %s:%d\n", __FUNCTION__, __LINE__);
-		close(SocketFD);
+		close(socket_fd);
 		return 0;
 	}
 
-	ret = listen(SocketFD, 2);
+	ret = listen(socket_fd, 2);
 	if (ret < 0) {
-		close(SocketFD);
+		close(socket_fd);
 		printf("error %s:%d\n", __FUNCTION__, __LINE__);
 		return 0;
 	}
 	recv_signal();
-	int ConnectFD = accept(SocketFD, NULL, NULL);
-	if (ConnectFD < 0) {
+	int connect_fd = accept(socket_fd, NULL, NULL);
+	if (connect_fd < 0) {
 		printf("error %s:%d\n", __FUNCTION__, __LINE__);
-		close(SocketFD);
+		close(socket_fd);
 		return 0;
 	}
 	int i;
 	for (i = 0; i < 6; i++) {
-		ret = send(ConnectFD, msg, strlen(msg), 0);
+		ret = send(connect_fd, msg, strlen(msg), 0);
 		if (ret < 0) {
 			printf("error %s:%d\n", __FUNCTION__, __LINE__);
 		}
 	}
+	close(connect_fd);
+	connect_fd = accept(socket_fd, NULL, NULL);
+	if (connect_fd < 0) {
+		printf("error %s:%d\n", __FUNCTION__, __LINE__);
+		close(socket_fd);
+		return 0;
+	}
 
-	close(ConnectFD);
+	ret = send(connect_fd, msg, strlen(msg), 0);
+	if (ret == 0) {
+		printf("socket is closed. it's not error\n");
+	} else if (ret < 0) {
+		printf("error %s:%d %d\n", __FUNCTION__, __LINE__, errno);
+	}
 
-	close(SocketFD);
+	close(connect_fd);
+
+	close(socket_fd);
 	return 0;
 
 }
@@ -237,16 +262,24 @@ void *recv_client(void *args)
 	tc_net_recv_p(mysocket);
 	tc_net_recv_n(mysocket);
 	tc_net_recv_shutdown_n(mysocket);
+
+	close(mysocket);
+
+	mysocket = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (mysocket < 0) {
+		printf("Socket creation fail %s:%d\n", __FUNCTION__,  __LINE__);
+		return 0;
+	}
+
 	ret = connect(mysocket, (struct sockaddr *)&dest, sizeof(struct sockaddr));
 	if (ret < 0) {
 		close(mysocket);
-		printf("fail %s:%d\n", __FUNCTION__, __LINE__);
+		printf("fail %s:%d:%d\n", __FUNCTION__, __LINE__, errno);
 		return 0;
 	}
 	tc_net_recv_close_n(mysocket);
 
 	return 0;
-
 }
 
 /****************************************************************************
@@ -256,6 +289,8 @@ int net_recv_main(void)
 {
 
 	pthread_t Server, Client;
+
+	mutex = 0;
 
 	pthread_create(&Server, NULL, recv_server, NULL);
 	pthread_create(&Client, NULL, recv_client, NULL);

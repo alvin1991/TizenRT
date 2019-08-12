@@ -55,12 +55,8 @@
  ************************************************************************/
 
 #include <tinyara/config.h>
-
 #include <assert.h>
-
 #include <tinyara/mm/mm.h>
-
-#if !defined(CONFIG_BUILD_PROTECTED) || !defined(__KERNEL__)
 
 /************************************************************************
  * Pre-processor definition
@@ -73,25 +69,15 @@
 /************************************************************************
  * Public Data
  ************************************************************************/
-
-#if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
-/* In the kernel build, there a multiple user heaps; one for each task
- * group.  In this build configuration, the user heap structure lies
- * in a reserved region at the beginning of the .bss/.data address
- * space (CONFIG_ARCH_DATA_VBASE).  The size of that region is given by
- * ARCH_DATA_RESERVE_SIZE
- */
-
-#include <tinyara/addrenv.h>
-#define USR_HEAP (&ARCH_DATA_RESERVE->ar_usrheap)
-
-#else
+#if !defined(CONFIG_ARCH_ADDRENV) || !defined(CONFIG_BUILD_KERNEL)
 /* Otherwise, the user heap data structures are in common .bss */
-
-struct mm_heap_s g_mmheap;
-#define USR_HEAP &g_mmheap
+struct mm_heap_s g_mmheap[CONFIG_MM_NHEAPS];
 #endif
 
+
+#if defined(CONFIG_BUILD_PROTECTED)
+struct mm_heap_s *g_mmheap_p __attribute__((section(".usrheapptr"))) = g_mmheap;
+#endif
 /************************************************************************
  * Private Functions
  ************************************************************************/
@@ -147,7 +133,5 @@ struct mm_heap_s g_mmheap;
 
 void umm_initialize(FAR void *heap_start, size_t heap_size)
 {
-	mm_initialize(USR_HEAP, heap_start, heap_size);
+	mm_initialize(BASE_HEAP, heap_start, heap_size);
 }
-
-#endif							/* !CONFIG_BUILD_PROTECTED || !__KERNEL__ */

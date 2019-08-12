@@ -1,7 +1,10 @@
+#
+# For a description of the syntax of this configuration file,
+# see kconfig-language at https://www.kernel.org/doc/Documentation/kbuild/kconfig-language.txt
+#
 
 config DISABLE_POLL
-	bool
-	prompt "Disable driver poll interfaces" if NFILE_DESCRIPTORS != 0
+	bool "Disable driver poll interfaces" if NFILE_DESCRIPTORS != 0
 	default n if NFILE_DESCRIPTORS != 0
 	default y if NFILE_DESCRIPTORS = 0
 	---help---
@@ -13,6 +16,38 @@ config DEV_NULL
 	bool "Enable /dev/null"
 	default y
 	depends on NFILE_DESCRIPTORS != 0
+
+config DEV_URANDOM
+	bool "Enable /dev/urandom"
+	default n
+	depends on NFILE_DESCRIPTORS != 0
+
+if DEV_URANDOM
+choice
+	prompt "/dev/urandom Algorithm"
+
+config DEV_URANDOM_RANDOM_POOL
+	bool "Entropy pool"
+	depends on CRYPTO_RANDOM_POOL
+         ---help---
+		Use the entropy pool CPRNG output for urandom algorithm.
+
+config DEV_URANDOM_XORSHIFT128
+	bool "xorshift128"
+	---help---
+		xorshift128 is a pseudorandom number generator that is simple,
+		portable, and can also be used on 8-bit and 16-bit MCUs.
+
+config DEV_URANDOM_CONGRUENTIAL
+	bool "Conguential"
+	---help---
+		Use the same congruential general used with srand().  This algorithm
+		is computationally more intense and uses double precision floating
+		point.  NOTE: Good randomness from the congruential generator also
+		requires that you also select CONFIG_LIB_RAND_ORDER > 2
+
+endchoice
+endif
 
 config DEV_ZERO
 	bool "Enable /dev/zero"
@@ -211,6 +246,18 @@ if AUDIO_DEVICES
 source drivers/audio/Kconfig
 endif # AUDIO_DEVICES
 
+menuconfig DRIVERS_VIDEO
+	bool "Video Device Support"
+	default n
+	---help---
+		Enable support for video device drivers.
+
+if DRIVERS_VIDEO
+source drivers/video/Kconfig
+endif # DRIVERS_VIDEO
+
+source drivers/lcd/Kconfig
+
 menuconfig BCH
 	bool "Block-to-Character (BCH) Support"
 	default n
@@ -358,6 +405,8 @@ if ANALOG
 source drivers/analog/Kconfig
 endif # ANALOG
 
+source drivers/testcase/Kconfig
+
 menuconfig NETDEVICES
 	bool "Network Device/PHY Support"
 	default n if !ARCH_HAVE_PHY
@@ -431,6 +480,16 @@ if USBDEV
 source drivers/usbdev/Kconfig
 endif # USBDEV
 
+menuconfig USBHOST
+        bool "USB Host Driver Support"
+        default n
+        ---help---
+                USB host drivers.  See also include/nuttx/usb/usbhost.h
+
+if USBHOST
+source drivers/usbhost/Kconfig
+endif # USBHOST
+
 config FOTA_DRIVER
 	bool "FOTA Device Driver Support"
 	default n
@@ -439,6 +498,7 @@ config FOTA_DRIVER
 
 source drivers/syslog/Kconfig
 source drivers/ttrace/Kconfig
+source drivers/iotdev/Kconfig
 
 comment "Wireless Device Options"
 
@@ -449,4 +509,32 @@ menuconfig DRIVERS_WIRELESS
 		Drivers for various wireless devices.
 
 source drivers/wireless/Kconfig
-source drivers/testcase/Kconfig
+
+config OTP
+	bool "OTP Driver Support"
+	default n
+	depends on NFILE_DESCRIPTORS != 0
+	---help---
+		This selection enables building of the "upper-half" OTP
+		driver. See include/tinyara/otp.h for further OTP driver
+		information.
+
+if OTP
+config OTP_NULL
+	bool "OTP Null device"
+	default n
+	---help---
+		Virtual OTP device
+endif
+
+menuconfig LWNL80211
+	bool "Enable light-weight netlink for 80211"
+	default n
+	---help---
+		Lwnl80211 provides a driver interface for 802.11 WiFi hardware.
+
+if LWNL80211
+source drivers/lwnl/Kconfig
+endif
+
+source drivers/seclink/Kconfig

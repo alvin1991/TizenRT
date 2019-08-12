@@ -152,15 +152,20 @@ things_es_enrollee_state_e es_get_state(void)
 
 bool es_get_cloud_login_state(void)
 {
+	bool res;
 	switch (get_enrollee_state()) {
 	case ES_STATE_REGISTERED_TO_CLOUD:
 	case ES_STATE_PUBLISHING_RESOURCES_TO_CLOUD:
 	case ES_STATE_PUBLISHED_RESOURCES_TO_CLOUD:
 	case ES_STATE_FAILED_TO_PUBLISH_RESOURCES_TO_CLOUD:
-		return true;
+		res = true;
+		break;
+	default:
+		res = false;
+		break;
 	}
 
-	return false;
+	return res;
 }
 
 es_result_e es_set_device_property(es_device_property *device_property)
@@ -303,7 +308,7 @@ es_result_e es_set_cloud_error_code(ci_error_code_e es_err_code)
 	return ES_OK;
 }
 
-es_result_e es_terminate_enrollee()
+es_result_e es_terminate_enrollee(void)
 {
 	THINGS_LOG_D(ES_ENROLLEE_TAG, "es_terminate_enrollee IN");
 

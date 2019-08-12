@@ -112,7 +112,21 @@ err_t ethernet_input(struct pbuf *p, struct netif *netif)
 
 	/* points to packet payload, which starts with an Ethernet header */
 	ethhdr = (struct eth_hdr *)p->payload;
-	LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("ethernet_input: dest:%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ", src:%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ", type:%" X16_F "\n", (unsigned)ethhdr->dest.addr[0], (unsigned)ethhdr->dest.addr[1], (unsigned)ethhdr->dest.addr[2], (unsigned)ethhdr->dest.addr[3], (unsigned)ethhdr->dest.addr[4], (unsigned)ethhdr->dest.addr[5], (unsigned)ethhdr->src.addr[0], (unsigned)ethhdr->src.addr[1], (unsigned)ethhdr->src.addr[2], (unsigned)ethhdr->src.addr[3], (unsigned)ethhdr->src.addr[4], (unsigned)ethhdr->src.addr[5], lwip_htons(ethhdr->type)));
+	LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE,
+				("ethernet_input: dest:%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ",src:%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ":%" X8_F ",type:%" X16_F "\n",
+				 (unsigned)ethhdr->dest.addr[0],
+				 (unsigned)ethhdr->dest.addr[1],
+				 (unsigned)ethhdr->dest.addr[2],
+				 (unsigned)ethhdr->dest.addr[3],
+				 (unsigned)ethhdr->dest.addr[4],
+				 (unsigned)ethhdr->dest.addr[5],
+				 (unsigned)ethhdr->src.addr[0],
+				 (unsigned)ethhdr->src.addr[1],
+				 (unsigned)ethhdr->src.addr[2],
+				 (unsigned)ethhdr->src.addr[3],
+				 (unsigned)ethhdr->src.addr[4],
+				 (unsigned)ethhdr->src.addr[5],
+				 lwip_htons(ethhdr->type)));
 
 	type = ethhdr->type;
 #if ETHARP_SUPPORT_VLAN
@@ -183,6 +197,8 @@ err_t ethernet_input(struct pbuf *p, struct netif *netif)
 			goto free_and_return;
 		} else {
 			/* pass to IP layer */
+			MIB2_STATS_NETIF_ADD(netif, ifinoctets, netif->d_len);
+			MIB2_STATS_NETIF_INC(netif, ifinucastpkts);
 			ip4_input(p, netif);
 		}
 		break;
@@ -197,19 +213,26 @@ err_t ethernet_input(struct pbuf *p, struct netif *netif)
 			LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("Can't move over header in packet"));
 			ETHARP_STATS_INC(etharp.lenerr);
 			ETHARP_STATS_INC(etharp.drop);
+			MIB2_STATS_NETIF_INC(netif, ifinerrors);
 			goto free_and_return;
 		} else {
 			/* pass p to ARP module */
+			MIB2_STATS_NETIF_ADD(netif, ifinoctets, netif->d_len);
+			MIB2_STATS_NETIF_INC(netif, ifinnucastpkts);
 			etharp_input(p, netif);
 		}
 		break;
 #endif							/* LWIP_IPV4 && LWIP_ARP */
 #if PPPOE_SUPPORT
 	case PP_HTONS(ETHTYPE_PPPOEDISC):	/* PPP Over Ethernet Discovery Stage */
+		MIB2_STATS_NETIF_ADD(netif, ifinoctets, netif->d_len);
+		MIB2_STATS_NETIF_INC(netif, ifinnucastpkts);
 		pppoe_disc_input(netif, p);
 		break;
 
 	case PP_HTONS(ETHTYPE_PPPOE):	/* PPP Over Ethernet Session Stage */
+		MIB2_STATS_NETIF_ADD(netif, ifinoctets, netif->d_len);
+		MIB2_STATS_NETIF_INC(netif, ifinnucastpkts);
 		pppoe_data_input(netif, p);
 		break;
 #endif							/* PPPOE_SUPPORT */
@@ -219,9 +242,12 @@ err_t ethernet_input(struct pbuf *p, struct netif *netif)
 		/* skip Ethernet header */
 		if ((p->len < ip_hdr_offset) || pbuf_header(p, (s16_t) - ip_hdr_offset)) {
 			LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_LEVEL_WARNING, ("ethernet_input: IPv6 packet dropped, too short (%" S16_F "/%" S16_F ")\n", p->tot_len, ip_hdr_offset));
+			MIB2_STATS_NETIF_INC(netif, ifinerrors);
 			goto free_and_return;
 		} else {
 			/* pass to IPv6 layer */
+			MIB2_STATS_NETIF_ADD(netif, ifinoctets, netif->d_len);
+			MIB2_STATS_NETIF_INC(netif, ifinucastpkts);
 			ip6_input(p, netif);
 		}
 		break;
@@ -244,6 +270,7 @@ err_t ethernet_input(struct pbuf *p, struct netif *netif)
 	return ERR_OK;
 
 free_and_return:
+	MIB2_STATS_NETIF_ADD(netif, ifinoctets, netif->d_len);
 	pbuf_free(p);
 	return ERR_OK;
 }
@@ -299,11 +326,15 @@ err_t ethernet_output(struct netif * netif, struct pbuf * p, const struct eth_ad
 	LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE, ("ethernet_output: sending packet %p\n", (void *)p));
 
 	/* send the packet */
+	MIB2_STATS_NETIF_ADD(netif, ifoutoctets, netif->d_len);
+	MIB2_STATS_NETIF_INC(netif, ifoutucastpkts);
 	return netif->linkoutput(netif, p);
 
 pbuf_header_failed:
 	LWIP_DEBUGF(ETHARP_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_LEVEL_SERIOUS, ("ethernet_output: could not allocate room for header.\n"));
 	LINK_STATS_INC(link.lenerr);
+	MIB2_STATS_NETIF_ADD(netif, ifoutoctets, netif->d_len);
+	MIB2_STATS_NETIF_INC(netif, ifoutdiscards);
 	return ERR_BUF;
 }
 

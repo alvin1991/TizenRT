@@ -31,8 +31,6 @@
 #include <iotbus/iotbus_error.h>
 #include <iotbus/iotbus_pwm.h>
 
-#include "iotbus_internal.h"
-
 /*
  * private types
  */
@@ -43,6 +41,7 @@
 struct _iotbus_pwm_s {
 	int fd;
 	int enabled;
+	iotbus_pwm_val_e idle;
 	struct pwm_info_s config;
 };
 
@@ -126,12 +125,26 @@ int iotbus_pwm_close(iotbus_pwm_context_h pwm)
 
 int iotbus_pwm_set_duty_cycle(iotbus_pwm_context_h pwm, percent_t duty_cycle)
 {
+	int ret;
+
+	if (!pwm || !pwm->handle || duty_cycle > 100) {
+		return IOTBUS_ERROR_INVALID_PARAMETER;
+	}
+
+	uint16_t duty = ((duty_cycle * IOTBUS_PWM_MAX_RESOLUTION) / 100.0) + 0.5;
+	ret = iotbus_pwm_set_duty_cycle_in_integer(pwm, duty);
+
+	return ret;
+}
+
+int iotbus_pwm_set_duty_cycle_in_integer(iotbus_pwm_context_h pwm, uint16_t duty_cycle)
+{
 	int fd;
 	int ret;
 	struct pwm_info_s *info;
 	struct _iotbus_pwm_s *handle;
 
-	if (!pwm || !pwm->handle || duty_cycle > 100) {
+	if (!pwm || !pwm->handle || duty_cycle > IOTBUS_PWM_MAX_RESOLUTION) {
 		return IOTBUS_ERROR_INVALID_PARAMETER;
 	}
 
@@ -145,7 +158,7 @@ int iotbus_pwm_set_duty_cycle(iotbus_pwm_context_h pwm, percent_t duty_cycle)
 		return IOTBUS_ERROR_UNKNOWN;
 	}
 
-	info->duty = ((duty_cycle * IOTBUS_PWM_MAX_RESOLUTION) / 100.0) + 0.5;
+	info->duty = duty_cycle;
 	ret = ioctl(fd, PWMIOC_SETCHARACTERISTICS, (unsigned long)((uintptr_t)info));
 	if (ret < 0) {
 		ibdbg("ioctl(PWMIOC_SETCHARACTERISTICS) failed: %d\n", errno);
@@ -153,6 +166,23 @@ int iotbus_pwm_set_duty_cycle(iotbus_pwm_context_h pwm, percent_t duty_cycle)
 	}
 
 	return IOTBUS_ERROR_NONE;
+}
+
+int iotbus_pwm_set_idle(iotbus_pwm_context_h pwm, iotbus_pwm_val_e val)
+{
+	if (!pwm || !pwm->handle) {
+		return IOTBUS_ERROR_INVALID_PARAMETER;
+	}
+
+	if (val == IOTBUS_PWM_HIGH) {
+		iotbus_pwm_set_duty_cycle_in_integer(pwm, IOTBUS_PWM_MAX_RESOLUTION);
+		return IOTBUS_ERROR_NONE;
+	} else if (val == IOTBUS_PWM_LOW) {
+		iotbus_pwm_set_duty_cycle_in_integer(pwm, 0);
+		return IOTBUS_ERROR_NONE;
+	}
+
+	return IOTBUS_ERROR_INVALID_PARAMETER;
 }
 
 // period : us

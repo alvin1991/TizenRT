@@ -19,20 +19,21 @@
 // @file tc_net_getpeername.c
 // @brief Test Case Example for getpeername() API
 #include <tinyara/config.h>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
 #include <stdio.h>
 #include <errno.h>
-
-#include <sys/stat.h>
+#include <pthread.h>
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+
 //#include <arch/board/board.h>
 #include <netutils/netlib.h>
 
-#include <sys/socket.h>
-
 #include "tc_internal.h"
-#include <pthread.h>
 
 #define PORTNUM 1115
 #define MAXRCVLEN 20
@@ -206,8 +207,8 @@ static void tc_net_getpeername_n(int fd)
 void *getpeername_server(void *args)
 {
 	struct sockaddr_in sa;
-	int SocketFD = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (SocketFD < 0) {
+	int socket_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (socket_fd < 0) {
 		printf("socket creation fail %s :%d", __FUNCTION__, __LINE__);
 		getpeername_error();
 		return 0;
@@ -218,26 +219,31 @@ void *getpeername_server(void *args)
 	sa.sin_port = htons(PORTNUM);
 	sa.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-	int ret = bind(SocketFD, (struct sockaddr *)&sa, sizeof(sa));
+	int ret = bind(socket_fd, (struct sockaddr *)&sa, sizeof(sa));
 	if (ret < 0) {
 		printf("bind fail %s :%d", __FUNCTION__, __LINE__);
 		getpeername_error();
-		close(SocketFD);
+		close(socket_fd);
 		return 0;
 	}
 
-	ret = listen(SocketFD, 1);
+	ret = listen(socket_fd, 1);
 	if (ret < 0) {
 		printf("listen fail %s :%d", __FUNCTION__, __LINE__);
 		getpeername_error();
-		close(SocketFD);
+		close(socket_fd);
 		return 0;
 	}
 	getpeername_signal();
-	int ConnectFD = accept(SocketFD, NULL, NULL);
+	int connect_fd = accept(socket_fd, NULL, NULL);
+	if (connect_fd == -1) {
+		printf("accept fail\n");
+		close(socket_fd);
+		return 0;
+	}
 
-	close(ConnectFD);
-	close(SocketFD);
+	close(connect_fd);
+	close(socket_fd);
 	return 0;
 }
 
@@ -276,6 +282,7 @@ void *getpeername_client(void *args)
 	ret = connect(mysocket, (struct sockaddr *)&dest, sizeof(struct sockaddr));
 	if (ret < 0) {
 		printf("connect fail %s %d\n", __FUNCTION__, __LINE__);
+		close(mysocket);
 		return 0;
 	}
 
@@ -293,6 +300,8 @@ int net_getpeername_main(void)
 {
 
 	pthread_t Server, Client;
+	g_sem = 0;
+	g_running_client = 0;
 
 	pthread_create(&Client, NULL, getpeername_client, NULL);
 	int ret = _wait_client();
@@ -309,8 +318,6 @@ int net_getpeername_main(void)
 
 	tc_net_getpeername_sock_n();
 	tc_net_getpeername_close_n();
-#ifdef AF_UNIX
-	tc_net_getpeername_unix_p();
-#endif
+
 	return 0;
 }

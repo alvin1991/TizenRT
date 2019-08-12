@@ -25,19 +25,19 @@
 #include "framework/things_server_builder.h"
 #include <stdint.h>
 
-#define CI_COMMON_REFRESH_TIME      12	// access token Refresh period time without accesstoken-expire. (unit: hour)
-#define CI_TOKEN_EXPIRECHECK_TIME   3000	// access token Check period time whether it's expired or available. (unit: second)
+#define CI_COMMON_REFRESH_TIME      12      // access token Refresh period time without accesstoken-expire. (unit: hour)
+#define CI_TOKEN_EXPIRECHECK_TIME   3000    // access token Check period time whether it's expired or available. (unit: second)
 
-#define CLOUD_EXPIRESIN_INVALID		-1
+#define CLOUD_EXPIRESIN_INVALID     -1
 
 #ifdef __SECURED__
-#define DEFAULT_COAP_TCP_HOST "coaps+tcp://"
-#define UNSUPPORT_COAP_TCP_HOST "coap+tcp://"
-#define DEFAULT_COAP_PORT "443"
+#define DEFAULT_COAP_TCP_HOST       "coaps+tcp://"
+#define UNSUPPORT_COAP_TCP_HOST     "coap+tcp://"
+#define DEFAULT_COAP_PORT           "443"
 #else
-#define DEFAULT_COAP_TCP_HOST "coap+tcp://"
-#define UNSUPPORT_COAP_TCP_HOST "coaps+tcp://"
-#define DEFAULT_COAP_PORT "5683"
+#define DEFAULT_COAP_TCP_HOST       "coap+tcp://"
+#define UNSUPPORT_COAP_TCP_HOST     "coaps+tcp://"
+#define DEFAULT_COAP_PORT           "5683"
 #endif
 
 typedef enum rp_target_e {
@@ -88,7 +88,5 @@ int ci_retry_stop_by_wifi_cb(bool is_retry);
 int ci_retry_stop_by_tcp_cb(const char *addr_ip, const int port);
 
 int push_notification_to_cloud(const char *uri, OCRepPayload *payload);
-
-void ci_stop_cloud_connection(void *cb_func);
 
 #endif							// _CLOUD_MANAGER_H_

@@ -55,31 +55,12 @@
  ************************************************************************/
 
 #include <tinyara/config.h>
-
+#include <errno.h>
 #include <tinyara/mm/mm.h>
-
-#if !defined(CONFIG_BUILD_PROTECTED) || !defined(__KERNEL__)
 
 /************************************************************************
  * Pre-processor definition
  ************************************************************************/
-
-#if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
-/* In the kernel build, there a multiple user heaps; one for each task
- * group.  In this build configuration, the user heap structure lies
- * in a reserved region at the beginning of the .bss/.data address
- * space (CONFIG_ARCH_DATA_VBASE).  The size of that region is given by
- * ARCH_DATA_RESERVE_SIZE
- */
-
-#include <tinyara/addrenv.h>
-#define USR_HEAP (&ARCH_DATA_RESERVE->ar_usrheap)
-
-#else
-/* Otherwise, the user heap data structures are in common .bss */
-
-#define USR_HEAP &g_mmheap
-#endif
 
 /************************************************************************
  * Private Types
@@ -113,9 +94,15 @@
  *
  ************************************************************************/
 
-int umm_trysemaphore(void)
+int umm_trysemaphore(void *address)
 {
-	return mm_trysemaphore(USR_HEAP);
+	struct mm_heap_s *heap;
+	heap = mm_get_heap(address);
+	if (heap) {
+		return mm_trysemaphore(heap);
+	}
+	set_errno(EFAULT);
+	return EFAULT;
 }
 
 /************************************************************************
@@ -134,9 +121,14 @@ int umm_trysemaphore(void)
  *
  ************************************************************************/
 
-void umm_givesemaphore(void)
+void umm_givesemaphore(void *address)
 {
-	mm_givesemaphore(USR_HEAP);
+	struct mm_heap_s *heap;
+	heap = mm_get_heap(address);
+	if (!heap) {
+		set_errno(EFAULT);
+		return;
+	}
+	mm_givesemaphore(heap);
 }
 
-#endif							/* !CONFIG_BUILD_PROTECTED || !__KERNEL__ */

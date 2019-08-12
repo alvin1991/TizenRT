@@ -25,6 +25,7 @@
 #include "common/ieee802_11_common.h"
 #include "common/defs.h"
 
+#include <sys/types.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
@@ -41,7 +42,7 @@ extern int wpa_supplicant_main(int argc, char *argv[]);
 extern size_t printf_decode(u8 *buf, size_t maxlen, const char *str);
 extern void printf_encode(char *txt, size_t maxlen, const u8 *data, size_t len);
 
-#ifdef CONFIG_DEBUG_WLAN_API_VERBOSE
+#ifdef CONFIG_DEBUG_WLAN_API_INFO
 #define VPRINT(format, ...) printf("SLSI API VERBOSE (%s): " format, __FUNCTION__, ##__VA_ARGS__)
 #define SLSI_API_VERBOSE  (1)
 #ifndef CONFIG_DEBUG_WLAN_API_DEBUG
@@ -50,7 +51,7 @@ extern void printf_encode(char *txt, size_t maxlen, const u8 *data, size_t len);
 #else
 #define VPRINT(a, ...) (void)0
 #define SLSI_API_VERBOSE  (0)
-#endif							//CONFIG_DEBUG_WLAN_API_VERBOSE
+#endif							//CONFIG_DEBUG_WLAN_API_INFO
 
 #ifdef CONFIG_DEBUG_WLAN_API_DEBUG
 #define DPRINT(format, ...) printf("SLSI API DEBUG (%s): " format, __FUNCTION__, ##__VA_ARGS__)
@@ -507,11 +508,11 @@ static int8_t slsi_init_filesystem(void)
 
 				if (ret != 1) {
 					EPRINT("write_file: ERROR failed to write to %s, errno=%d, ret=%d\n", conffile, errno, ret);
-					fclose(fp);
 					ret = SLSI_STATUS_ERROR;
+				} else {
+					ret = SLSI_STATUS_SUCCESS;
 				}
 				fclose(fp);
-				ret = SLSI_STATUS_SUCCESS;
 			}
 		} else {
 			ret = SLSI_STATUS_SUCCESS;
@@ -2927,7 +2928,7 @@ static uint8_t slsi_start_supplicant(void)
 #ifdef CONFIG_DEBUG_WLAN_SUPPLICANT_MORE
 	sup_argv[0] = "-dddd";		// + DUMP
 #endif
-#ifdef CONFIG_DEBUG_WLAN_SUPPLICANT_VERBOSE
+#ifdef CONFIG_DEBUG_WLAN_SUPPLICANT_INFO
 	sup_argv[0] = "-ddddd";		// + EXCESSIVE
 #endif
 	sup_argv[1] = "-t";
@@ -3125,10 +3126,10 @@ static int8_t slsi_init(WiFi_InterFace_ID_t interface_id, const slsi_ap_config_t
 			slsi_set_updateconfig();
 			slsi_set_scan_interval(SLSI_SCAN_INTERVAL);
 			slsi_set_bss_expiration();
-			if (interface_id == SLSI_WIFI_SOFT_AP_IF) {
-				slsi_set_autoconnect(0);
-			} else {
+			if (interface_id == SLSI_WIFI_STATION_IF) {
 				slsi_set_autoconnect(1);
+			} else {
+				slsi_set_autoconnect(0);
 			}
 
 		} else {
@@ -3698,3 +3699,24 @@ int8_t WiFiSaveConfig(void)
 #endif
 	return result;
 }
+
+int8_t WiFiSetAutoconnect(uint8_t check)
+{
+	int8_t result = SLSI_STATUS_NOT_SUPPORTED;
+
+	ENTER_CRITICAL;
+	if (slsi_get_op_mode() == SLSI_WIFI_STATION_IF) {
+		DPRINT("WiFiSetAutoconnect - set to %d\n", (int)check);
+		slsi_set_autoconnect(check);
+		result = SLSI_STATUS_SUCCESS;
+	} else if (g_state == SLSI_WIFIAPI_STATE_NOT_STARTED) {
+		DPRINT("WiFiSetAutoconnect - not started\n");
+	} else {
+		DPRINT("WiFiSetAutoconnect - not allowed during AP mode\n");
+		result = SLSI_STATUS_NOT_ALLOWED;
+	}
+	LEAVE_CRITICAL;
+
+	return result;
+}
+

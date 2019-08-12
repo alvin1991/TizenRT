@@ -119,7 +119,9 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
 	}
 
 	if (size > MM_ALIGN_DOWN(MMSIZE_MAX) - SIZEOF_MM_ALLOCNODE) {
-		mvdbg("Because of mm_allocnode, %u cannot be allocated. The maximun allocable size is (MM_ALIGN_DOWN(MMSIZE_MAX) - SIZEOF_MM_ALLOCNODE) : %u\n.", size, (MM_ALIGN_DOWN(MMSIZE_MAX) - SIZEOF_MM_ALLOCNODE));
+		mdbg("Because of mm_allocnode, %u cannot be allocated. The maximum \
+			 allocable size is (MM_ALIGN_DOWN(MMSIZE_MAX) - SIZEOF_MM_ALLOCNODE) \
+			 : %u\n.", size, (MM_ALIGN_DOWN(MMSIZE_MAX) - SIZEOF_MM_ALLOCNODE));
 		return NULL;
 	}
 
@@ -133,31 +135,36 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
 
 	mm_takesemaphore(heap);
 
-	/* Get the location in the node list to start the search. Special case
-	 * really big allocations
+	/* Get the location in the node list to start the search
+	 * by converting the request size into a nodelist index.
 	 */
 
-	if (size >= MM_MAX_CHUNK) {
-		ndx = MM_NNODES - 1;
-	} else {
-		/* Convert the request size into a nodelist index */
+	ndx = mm_size2ndx(size);
 
-		ndx = mm_size2ndx(size);
+	/* Search for a large enough chunk in the list of nodes.
+	 * This list is ordered by size in a descending order.
+	 * If this list does not have free nodes whose size is large enough
+	 * to accomodate the requested size, malloc() will fail due to no more space.
+	 */
+
+	node = heap->mm_nodelist[ndx].flink;
+	if (!(node && node->size >= size)) {
+		while (++ndx < MM_NNODES && !(node = heap->mm_nodelist[ndx].flink)) ;
 	}
 
-	/* Search for a large enough chunk in the list of nodes. This list is
-	 * ordered by size, but will have occasional zero sized nodes as we visit
-	 * other mm_nodelist[] entries.
-	 */
-
-	for (node = heap->mm_nodelist[ndx].flink; node && node->size < size; node = node->flink) ;
+	/* If node is not NULL, there exists a free node big enough to allocate. */
+	FAR struct mm_freenode_s *prev = &heap->mm_nodelist[ndx];
+	for ( ; node && node->size > size; prev = node, node = node->flink) ;
+	if (!(node && node->size == size)) {
+		node = prev;
+	}
 
 	/* If we found a node with non-zero size, then this is one to use. Since
 	 * the list is ordered, we know that is must be best fitting chunk
 	 * available.
 	 */
 
-	if (node) {
+	if (node->size) {
 		FAR struct mm_freenode_s *remainder;
 		FAR struct mm_freenode_s *next;
 		size_t remaining;
@@ -212,7 +219,7 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
 
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 		heapinfo_update_node((struct mm_allocnode_s *)node, caller_retaddr);
-		heapinfo_add_size(((struct mm_allocnode_s *)node)->pid, node->size);
+		heapinfo_add_size(heap, ((struct mm_allocnode_s *)node)->pid, node->size);
 		heapinfo_update_total_size(heap, node->size, ((struct mm_allocnode_s *)node)->pid);
 #endif
 		ret = (void *)((char *)node + SIZEOF_MM_ALLOCNODE);
@@ -228,7 +235,7 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
 	if (!ret) {
 		mdbg("Allocation failed, size %u\n", size);
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-		heapinfo_parse(heap, HEAPINFO_DETAIL_ALL, HEAPINFO_PID_NOTNEEDED);
+		heapinfo_parse(heap, HEAPINFO_DETAIL_ALL, HEAPINFO_PID_ALL);
 #endif
 	} else {
 		mvdbg("Allocated %p, size %u\n", ret, size);

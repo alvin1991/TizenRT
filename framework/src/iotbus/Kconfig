@@ -7,7 +7,7 @@ config IOTBUS
 	bool "IoTbus framework Support"
 	default y
 	---help---
-		Enables IoTBus (GPIO, I2C, PWM, SPI, UART) framework.
+		Enables IoTBus (GPIO, I2C, PWM, SPI, UART, ADC) framework.
 
 if IOTBUS
 
@@ -21,6 +21,7 @@ config IOTBUS_GPIO
 config IOTBUS_I2C
 	bool "IoTbus I2C"
 	default y
+	select I2C_USERIO
 	depends on I2C
 	---help---
 		Enables IoTbus I2C
@@ -35,6 +36,7 @@ config IOTBUS_PWM
 config IOTBUS_SPI
 	bool "IoTbus SPI"
 	default y
+	select SPI_USERIO
 	depends on SPI
 	---help---
 		Enables IoTbus SPI
@@ -46,10 +48,11 @@ config IOTBUS_UART
 	---help---
 		Enables IoTbus Uart
 
-config DEBUG_IOTBUS
-	bool "Enable IoTbus debug messages"
-	default n
-	depends on DEBUG
+config IOTBUS_ADC
+	bool "IoTbus ADC"
+	default y
+	depends on ADC
 	---help---
-		This config makes ibdbg printing messages.
+		Enables IoTbus ADC
+		
 endif

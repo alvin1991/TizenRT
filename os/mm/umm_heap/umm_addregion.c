@@ -55,31 +55,11 @@
  ************************************************************************/
 
 #include <tinyara/config.h>
-
 #include <tinyara/mm/mm.h>
-
-#if !defined(CONFIG_BUILD_PROTECTED) || !defined(__KERNEL__)
 
 /************************************************************************
  * Pre-processor definition
  ************************************************************************/
-
-#if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
-/* In the kernel build, there a multiple user heaps; one for each task
- * group.  In this build configuration, the user heap structure lies
- * in a reserved region at the beginning of the .bss/.data address
- * space (CONFIG_ARCH_DATA_VBASE).  The size of that region is given by
- * ARCH_DATA_RESERVE_SIZE
- */
-
-#include <tinyara/addrenv.h>
-#define USR_HEAP (&ARCH_DATA_RESERVE->ar_usrheap)
-
-#else
-/* Otherwise, the user heap data structures are in common .bss */
-
-#define USR_HEAP &g_mmheap
-#endif
 
 /************************************************************************
  * Private Types
@@ -116,7 +96,5 @@
 
 void umm_addregion(FAR void *heap_start, size_t heap_size)
 {
-	mm_addregion(USR_HEAP, heap_start, heap_size);
+	mm_addregion(BASE_HEAP, heap_start, heap_size);
 }
-
-#endif							/* !CONFIG_BUILD_PROTECTED || !__KERNEL__ */

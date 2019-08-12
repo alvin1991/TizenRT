@@ -270,7 +270,16 @@ static void gpio_enable(FAR struct gpio_upperhalf_s *priv)
 	/* Enable/disable GPIO interrupts */
 	DEBUGASSERT(lower->ops->enable);
 	if (rising || falling) {
-		lower->ops->enable(lower, true, true, gpio_interrupt);
+		/*
+		  * gu_sample saved the old status for GPIO, it used when interrupt coming to compare
+		  * current status to gu_sample.
+		  * It update on system startup during gpio_register().
+		  * But, device driver init always after gpio init.
+		  * If GPIO status changed after gpio_register(), it will not record.
+		  * So, we update gu_sample before enable gpio irq.
+		  */
+		priv->gu_sample = lower->ops->get(lower);
+		lower->ops->enable(lower, falling, rising, gpio_interrupt);
 	} else {
 		/* Disable further interrupts */
 		lower->ops->enable(lower, false, false, NULL);
@@ -280,6 +289,55 @@ static void gpio_enable(FAR struct gpio_upperhalf_s *priv)
 }
 #endif
 
+static int gpio_enable_interrupt(FAR struct gpio_upperhalf_s *priv, unsigned long arg)
+{
+	FAR struct gpio_lowerhalf_s *lower;
+	
+	DEBUGASSERT(priv && priv->gu_lower);
+	lower = priv->gu_lower;
+
+	bool rising;
+	bool falling;
+	int ret;
+	irqstate_t flags;
+
+	flags = irqsave();
+
+	switch (arg) {
+	case GPIO_EDGE_NONE:
+		rising = false;
+		falling = false;
+		break;
+	case GPIO_EDGE_BOTH:
+		rising = true;
+		falling = true;
+		break;
+	case GPIO_EDGE_RISING:
+		rising = true;
+		falling = false;
+		break;
+	case GPIO_EDGE_FALLING:
+		rising = false;
+		falling = true;
+		break;
+	default:
+		lldbg("Interrupt value is invalid\n");
+		irqrestore(flags);
+		return ERROR;
+		break;
+	}
+
+	DEBUGASSERT(lower->ops->enable);
+	if (rising || falling) {
+		ret = lower->ops->enable(lower, falling, rising, gpio_interrupt);
+	} else {
+		/* Disable further interrupts */
+		ret = lower->ops->enable(lower, false, false, NULL);
+	}
+	irqrestore(flags);
+
+	return ret;
+}
 /****************************************************************************
  * Name: gpio_write
  *
@@ -396,6 +454,11 @@ static int gpio_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 		break;
 	}
 #endif /* CONFIG_DISABLE_SIGNALS */
+
+	case GPIOIOC_SET_INTERRUPT: {
+		ret = gpio_enable_interrupt(priv, arg);
+		break;
+	}
 
 	default:
 		ret = -ENOTTY;
@@ -538,6 +601,8 @@ static int gpio_close(FAR struct file *filep)
 
 	/* And free the open structure */
 	kmm_free(opriv);
+	filep->f_priv = NULL;
+
 	ret = OK;
 
 errout_with_exclsem:

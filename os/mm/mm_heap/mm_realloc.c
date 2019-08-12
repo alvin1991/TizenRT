@@ -107,13 +107,13 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size)
 #endif
 {
 	FAR struct mm_allocnode_s *oldnode;
-#ifndef CONFIG_DISABLE_REALLOC_NEIGHBOR_EXTENSION
+#ifndef CONFIG_REALLOC_DISABLE_NEIGHBOR_EXTENSION
 	FAR struct mm_freenode_s  *prev;
 	FAR struct mm_freenode_s  *next;
 #endif
 	size_t newsize;
 	size_t oldsize;
-#ifndef CONFIG_DISABLE_REALLOC_NEIGHBOR_EXTENSION
+#ifndef CONFIG_REALLOC_DISABLE_NEIGHBOR_EXTENSION
 	size_t prevsize = 0;
 	size_t nextsize = 0;
 #endif
@@ -154,7 +154,6 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size)
 
 	oldsize = oldnode->size;
 
-#ifndef CONFIG_DISABLE_REALLOC_NEIGHBOR_EXTENSION
 	if (newsize <= oldsize) {
 		/* Handle the special case where we are not going to change the size
 		 * of the allocation.
@@ -163,7 +162,7 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size)
 		if (newsize < oldsize) {
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 			/* modify the current allocated size of old node */
-			heapinfo_subtract_size(oldnode->pid, oldsize);
+			heapinfo_subtract_size(heap, oldnode->pid, oldsize);
 			heapinfo_update_total_size(heap, (-1) * oldsize, oldnode->pid);
 #endif
 
@@ -172,7 +171,7 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size)
 			/* update the chunk to realloc task information */
 			heapinfo_update_node(oldnode, caller_retaddr);
 
-			heapinfo_add_size(oldnode->pid, oldnode->size);
+			heapinfo_add_size(heap, oldnode->pid, oldnode->size);
 			heapinfo_update_total_size(heap, oldnode->size, oldnode->pid);
 #endif
 		}
@@ -183,6 +182,7 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size)
 		return oldmem;
 	}
 
+#ifndef CONFIG_REALLOC_DISABLE_NEIGHBOR_EXTENSION
 	/* This is a request to increase the size of the allocation,  Get the
 	 * available sizes before and after the oldnode so that we can make the
 	 * best decision
@@ -207,7 +207,7 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size)
 
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 		/* modify the current allocated size of old node */
-		heapinfo_subtract_size(oldnode->pid, oldsize);
+		heapinfo_subtract_size(heap, oldnode->pid, oldsize);
 		heapinfo_update_total_size(heap, (-1) * oldsize, oldnode->pid);
 #endif
 
@@ -358,7 +358,7 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size)
 		/* update the chunk to realloc task information */
 		heapinfo_update_node(oldnode, caller_retaddr);
 
-		heapinfo_add_size(oldnode->pid, oldnode->size);
+		heapinfo_add_size(heap, oldnode->pid, oldnode->size);
 		heapinfo_update_total_size(heap, oldnode->size, oldnode->pid);
 #endif
 
@@ -381,7 +381,7 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size)
 		newmem = (FAR void *)mm_malloc(heap, size);
 #endif
 		if (newmem) {
-			memcpy(newmem, oldmem, oldsize);
+			memcpy(newmem, oldmem, oldsize - SIZEOF_MM_ALLOCNODE);
 			mm_free(heap, oldmem);
 		}
 

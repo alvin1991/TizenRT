@@ -15,9 +15,6 @@
  * language governing permissions and limitations under the License.
  *
  ****************************************************************************/
-
-/// @file mqueue.c
-/// @brief Test Case Example for Message Queue API
 /**************************************************************************
 *
 *   Copyright (C) 2007-2009, 2011 Gregory Nutt. All rights reserved.
@@ -52,6 +49,10 @@
 *
 **************************************************************************/
 
+/// @file tc_mqueue.c
+
+/// @brief Test Case Example for Message Queue API
+
 /**************************************************************************
 * Included Files
 **************************************************************************/
@@ -61,6 +62,9 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <ctype.h>
+#ifndef CONFIG_DISABLE_SIGNALS
+#include <signal.h>
+#endif
 #include <fcntl.h>
 #include "tc_internal.h"
 
@@ -615,7 +619,7 @@ static void tc_mqueue_mq_open_close_send_receive(void)
 #ifndef CONFIG_DISABLE_SIGNALS
 	/* Wake up the receiver thread with a signal */
 
-	pthread_kill(receiver, 9);
+	pthread_kill(receiver, SIGUSR1);
 
 	/* Wait a bit to see if the thread exits on its own */
 
@@ -710,8 +714,10 @@ static void tc_mqueue_mq_notify(void)
 	TC_ASSERT_EQ_ERROR_CLEANUP("mq_notify", mq_notify(mqdes, NULL), OK, get_errno(), goto cleanup);
 
 	mq_close(mqdes);
+	mq_unlink("noti_queue");
 
 	TC_SUCCESS_RESULT();
+	return;
 cleanup:
 	mq_close(mqdes);
 	mq_unlink("noti_queue");
@@ -728,6 +734,7 @@ static void tc_mqueue_mq_timedsend_timedreceive(void)
 	ret_chk = timedreceive_test();
 	TC_ASSERT_EQ("timedreceive_test", ret_chk, OK);
 
+	mq_unlink("t_mqueue");
 	TC_SUCCESS_RESULT();
 }
 
@@ -739,14 +746,14 @@ static void tc_mqueue_mq_unlink(void)
 	mqdes = mq_open("mqunlink", O_CREAT | O_RDWR, 0666, 0);
 	TC_ASSERT_NEQ("mq_open", mqdes, (mqd_t)-1);
 
-	ret = mq_unlink("mqunlink");
-	TC_ASSERT_EQ_ERROR_CLEANUP("mq_unlink", ret, OK, get_errno(), mq_close(mqdes));
-
-	ret = mq_unlink("mqunlink");
-	TC_ASSERT_EQ_CLEANUP("mq_unlink", ret, ERROR, mq_close(mqdes));
-	TC_ASSERT_EQ_CLEANUP("mq_unlink", errno, ENOENT, mq_close(mqdes));
-
 	mq_close(mqdes);
+
+	ret = mq_unlink("mqunlink");
+	TC_ASSERT_EQ("mq_unlink", ret, OK);
+
+	ret = mq_unlink("mqunlink");
+	TC_ASSERT_EQ("mq_unlink", ret, ERROR);
+	TC_ASSERT_EQ("mq_unlink", errno, ENOENT);
 
 	TC_SUCCESS_RESULT();
 }
@@ -848,6 +855,85 @@ cleanup1:
 	mq_unlink("t_mqueues");
 }
 
+
+static void tc_mqueue_mq_getattr(void)
+{
+	mqd_t mqdes;
+	struct mq_attr attr;
+	struct mq_attr mq_stat;
+	int ret_chk;
+
+	/* Fill in attributes for message queue */
+
+	attr.mq_maxmsg  = 20;
+	attr.mq_msgsize = TEST_MSGLEN;
+
+	mqdes = mq_open("mqgetattr", O_CREAT | O_RDWR, 0666, &attr);
+	TC_ASSERT_NEQ("mq_open", mqdes, (mqd_t)ERROR);
+
+	ret_chk = mq_getattr(NULL, &mq_stat);
+	TC_ASSERT_EQ_CLEANUP("mq_getattr", ret_chk, ERROR, goto errout);
+
+	ret_chk = mq_getattr(mqdes, NULL);
+	TC_ASSERT_EQ_CLEANUP("mq_getattr", ret_chk, ERROR, goto errout);
+
+	ret_chk = mq_getattr(mqdes, &mq_stat);
+	TC_ASSERT_EQ_CLEANUP("mq_getattr", ret_chk, OK, goto errout);
+	TC_ASSERT_EQ_CLEANUP("mq_getattr", mq_stat.mq_maxmsg, attr.mq_maxmsg, goto errout);
+	TC_ASSERT_EQ_CLEANUP("mq_getattr", mq_stat.mq_msgsize, attr.mq_msgsize, goto errout);
+
+	mq_close(mqdes);
+	mq_unlink("mqgetattr");
+	TC_SUCCESS_RESULT();
+	return;
+
+errout:
+	mq_close(mqdes);
+	mq_unlink("mqgetattr");
+}
+
+static void tc_mqueue_mq_setattr(void)
+{
+	mqd_t mqdes;
+	struct mq_attr mq_stat;
+	struct mq_attr oldstat;
+	int ret_chk;
+
+	mqdes = mq_open("mqsetattr", O_CREAT | O_RDWR, 0666, 0);
+	TC_ASSERT_NEQ("mq_open", mqdes, (mqd_t)ERROR);
+
+	ret_chk = mq_getattr(mqdes, &mq_stat);
+	TC_ASSERT_EQ_CLEANUP("mq_getattr", ret_chk, OK, goto errout);
+
+	ret_chk = mq_setattr(NULL, &mq_stat, &oldstat);
+	TC_ASSERT_EQ_CLEANUP("mq_setattr", ret_chk, ERROR, goto errout);
+
+	ret_chk = mq_setattr(mqdes, NULL, &oldstat);
+	TC_ASSERT_EQ_CLEANUP("mq_setattr", ret_chk, ERROR, goto errout);
+
+	if (mq_stat.mq_flags & O_NONBLOCK) {
+		mq_stat.mq_flags = mq_stat.mq_flags & (~O_NONBLOCK);
+		ret_chk = mq_setattr(mqdes, &mq_stat, &oldstat);
+		TC_ASSERT_EQ_CLEANUP("mq_setattr", ret_chk, OK, goto errout);
+		TC_ASSERT_EQ_CLEANUP("mq_setattr", oldstat.mq_flags & O_NONBLOCK, O_NONBLOCK, goto errout);
+	} else {
+		mq_stat.mq_flags = mq_stat.mq_flags | O_NONBLOCK;
+		ret_chk = mq_setattr(mqdes, &mq_stat, &oldstat);
+		TC_ASSERT_EQ_CLEANUP("mq_setattr", ret_chk, OK, goto errout);
+		TC_ASSERT_EQ_CLEANUP("mq_setattr", oldstat.mq_flags & O_NONBLOCK, 0, goto errout);
+	}
+
+	mq_close(mqdes);
+	mq_unlink("mqsetattr");
+	TC_SUCCESS_RESULT();
+	return;
+
+errout:
+	mq_close(mqdes);
+	mq_unlink("mqsetattr");	
+}
+
+
 /****************************************************************************
  * Name: mqueue
  ****************************************************************************/
@@ -858,6 +944,9 @@ int mqueue_main(void)
 	tc_mqueue_mq_timedsend_timedreceive();
 	tc_mqueue_mq_timedsend_timedreceive_failurechecks();
 	tc_mqueue_mq_unlink();
+
+	tc_mqueue_mq_getattr();
+	tc_mqueue_mq_setattr();
 
 	return 0;
 }

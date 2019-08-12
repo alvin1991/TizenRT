@@ -83,8 +83,8 @@
 #define intdbg    lldbg
 #define intvdbg   llvdbg
 #else
-#define intdbg(x...)
-#define intvdbg(x...)
+#define intdbg(...)
+#define intvdbg(...)
 #endif
 
 /****************************************************************************
@@ -108,7 +108,7 @@
  */
 
 up_vector_t g_ram_vectors[ARMV7M_VECTAB_SIZE]
-__attribute__((section(".ram_vectors"), aligned(128)));
+__attribute__((section(".ram_vectors"), aligned(RAMVEC_ALIGN)));
 
 /****************************************************************************
  * Private Variables

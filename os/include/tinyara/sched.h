@@ -69,6 +69,13 @@
 #include <mqueue.h>
 #include <time.h>
 
+#if defined(CONFIG_ENABLE_STACKMONITOR) && defined(CONFIG_DEBUG)
+#include <tinyara/clock.h>
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+#include <tinyara/mm/mm.h>
+#endif
+#endif
+
 #include <tinyara/irq.h>
 #include <tinyara/mm/shm.h>
 #include <tinyara/fs/fs.h>
@@ -79,6 +86,12 @@
 /********************************************************************************
  * Pre-processor Definitions
  ********************************************************************************/
+#ifdef CONFIG_ARMV7M_MPU
+#define REG_RNR		0
+#define REG_RBAR	1
+#define REG_RASR	2
+#define MPU_REGS	3
+#endif
 /* Configuration ****************************************************************/
 /* Task groups currently only supported for retention of child status */
 
@@ -124,6 +137,8 @@
 #define HAVE_TASK_GROUP   1		/* Address environment */
 #elif defined(CONFIG_MM_SHM)
 #define HAVE_TASK_GROUP   1		/* Shared memory */
+#elif defined(CONFIG_BINARY_MANAGER)
+#define HAVE_TASK_GROUP   1		/* Binary management */
 #endif
 #endif
 
@@ -177,6 +192,14 @@
 #define CHILD_FLAG_TTYPE_PTHREAD (1 << CHILD_FLAG_TTYPE_SHIFT)	/* User pthread */
 #define CHILD_FLAG_TTYPE_KERNEL  (2 << CHILD_FLAG_TTYPE_SHIFT)	/* Kernel thread */
 #define CHILD_FLAG_EXITED          (1 << 0)	/* Bit 2: The child thread has exit'ed */
+
+/* Values for flag of pthread key allocated */
+
+#define KEY_NOT_INUSE   (0)
+#define KEY_INUSE       (1)
+
+#define MAX_PID_MASK	(CONFIG_MAX_TASKS - 1)
+#define PIDHASH(pid)	((pid) & MAX_PID_MASK)
 
 /********************************************************************************
  * Public Type Definitions
@@ -252,10 +275,6 @@ typedef CODE void (*atexitfunc_t)(void);
 typedef CODE void (*onexitfunc_t)(int exitcode, FAR void *arg);
 #endif
 
-#if CONFIG_NPTHREAD_KEYS > 0
-typedef CODE void (*pthread_destructor_t)(void *arg);
-#endif
-
 /* struct child_status_s *********************************************************/
 /** @brief This structure is used to maintin information about child tasks.
  * pthreads work differently, they have join information.  This is
@@ -306,14 +325,6 @@ struct dspace_s {
 };
 #endif
 
-/* struct pthread_key_s **********************************************************/
-#if CONFIG_NPTHREAD_KEYS > 0
-struct pthread_key_s {
-	void *data;
-	pthread_destructor_t destructor;
-};
-#endif
-
 /* struct task_group_s ***********************************************************/
 /* All threads created by pthread_create belong in the same task group (along with
  * the thread of the original task).  struct task_group_s is a shared structure
@@ -343,6 +354,10 @@ struct pthread_key_s {
 struct join_s;					/* Forward reference                        */
 /* Defined in kernel/pthread/pthread.h       */
 #endif
+
+#ifdef CONFIG_BINFMT_LOADABLE
+struct binary_s;				/* Forward reference                        */
+#endif
 /** @brief Structure for Task Group Information */
 struct task_group_s {
 #if defined(HAVE_GROUP_MEMBERS) || defined(CONFIG_ARCH_ADDRENV)
@@ -355,6 +370,10 @@ struct task_group_s {
 #if !defined(CONFIG_DISABLE_PTHREAD) && defined(CONFIG_SCHED_HAVE_PARENT)
 	pid_t tg_task;				/* The ID of the task within the group      */
 #endif
+#if defined(CONFIG_BINARY_MANAGER)
+	pid_t tg_loadtask;			/* The ID of the main task in binary        */
+#endif
+
 	uint8_t tg_flags;			/* See GROUP_FLAG_* definitions             */
 
 	/* Group membership ********************************************************** */
@@ -368,30 +387,36 @@ struct task_group_s {
 #if defined(CONFIG_SCHED_ATEXIT) && !defined(CONFIG_SCHED_ONEXIT)
 	/* atexit support *********************************************************** */
 
-#if defined(CONFIG_SCHED_ATEXIT_MAX) && CONFIG_SCHED_ATEXIT_MAX > 1
-	atexitfunc_t tg_atexitfunc[CONFIG_SCHED_ATEXIT_MAX];
-#else
-	atexitfunc_t tg_atexitfunc;	/* Called when exit is called.             */
-#endif
+	sq_queue_t tg_atexitfunc;
 #endif
 
 #ifdef CONFIG_SCHED_ONEXIT
 	/* on_exit support ********************************************************** */
-
-#if defined(CONFIG_SCHED_ONEXIT_MAX) && CONFIG_SCHED_ONEXIT_MAX > 1
-	onexitfunc_t tg_onexitfunc[CONFIG_SCHED_ONEXIT_MAX];
-	FAR void *tg_onexitarg[CONFIG_SCHED_ONEXIT_MAX];
-#else
-	onexitfunc_t tg_onexitfunc;	/* Called when exit is called.             */
-	FAR void *tg_onexitarg;		/* The argument passed to the function     */
-#endif
+	sq_queue_t tg_onexitfunc;
 #endif
 
-#if defined(CONFIG_SCHED_HAVE_PARENT) && defined(CONFIG_SCHED_CHILD_STATUS)
+#ifdef CONFIG_BINFMT_LOADABLE
+	/* Loadable module support *************************************************** */
+
+	FAR struct binary_s *tg_bininfo;	/* Describes resources used by program      */
+#endif
+
+#ifdef CONFIG_SCHED_HAVE_PARENT
 	/* Child exit status ********************************************************* */
 
-	FAR struct child_status_s *tg_children;	/* Head of a list of child status     */
+#ifdef CONFIG_SCHED_CHILD_STATUS
+	FAR struct child_status_s *tg_children; /* Head of a list of child status     */
 #endif
+
+#ifndef HAVE_GROUP_MEMBERS
+	/* REVISIT: What if parent thread exits?  Should use tg_pgid. */
+
+	pid_t    tg_ppid;                 /* This is the ID of the parent thread      */
+#ifndef CONFIG_SCHED_CHILD_STATUS
+	uint16_t tg_nchildren;            /* This is the number active children       */
+#endif
+#endif /* HAVE_GROUP_MEMBERS */
+#endif /* CONFIG_SCHED_HAVE_PARENT */
 
 #if defined(CONFIG_SCHED_WAITPID) && !defined(CONFIG_SCHED_HAVE_PARENT)
 	/* waitpid support *********************************************************** */
@@ -408,7 +433,8 @@ struct task_group_s {
 	FAR struct join_s *tg_joinhead;	/*   Head of a list of join data            */
 	FAR struct join_s *tg_jointail;	/*   Tail of a list of join data            */
 #if CONFIG_NPTHREAD_KEYS > 0
-	uint8_t tg_keys[CONFIG_NPTHREAD_KEYS];	/* Information of pthread keys allocated */
+	uint8_t tg_key[PTHREAD_KEYS_MAX];		/* flag of pthread keys allocated */
+	pthread_destructor_t tg_destructor[PTHREAD_KEYS_MAX];	/* Address list of each destructor */
 #endif
 #endif
 
@@ -478,6 +504,10 @@ struct task_group_s {
 };
 #endif
 
+#ifdef CONFIG_BINFMT_LOADABLE
+#define IS_LOADED_MODULE(group)    (group->tg_bininfo != NULL)   /* Points loading data if it is loaded */
+#endif
+
 /* struct tcb_s ******************************************************************/
 
 FAR struct wdog_s;				/* Forward reference                   */
@@ -500,15 +530,6 @@ struct tcb_s {
 	/* Task Management Fields **************************************************** */
 
 	pid_t pid;					/* This is the ID of the thread        */
-
-#ifdef CONFIG_SCHED_HAVE_PARENT	/* Support parent-child relationship   */
-#ifndef HAVE_GROUP_MEMBERS		/* Don't know pids of group members    */
-	pid_t ppid;					/* This is the ID of the parent thread */
-#ifndef CONFIG_SCHED_CHILD_STATUS	/* Retain child thread status          */
-	uint16_t nchildren;			/* This is the number active children  */
-#endif
-#endif
-#endif							/* CONFIG_SCHED_HAVE_PARENT */
 
 	start_t start;				/* Thread start function               */
 	entry_t entry;				/* Entry Point into the thread         */
@@ -567,6 +588,12 @@ struct tcb_s {
 	sq_queue_t sigpendactionq;	/* List of pending signal actions      */
 	sq_queue_t sigpostedq;		/* List of posted signals              */
 	siginfo_t sigunbinfo;		/* Signal info when task unblocked     */
+#ifdef CONFIG_SIGKILL_HANDLER
+	_sa_sigaction_t sigkillusrhandler; /* User defined SIGKILL handler      */
+#endif
+#ifdef HAVE_GROUP_MEMBERS
+	sigset_t sigrecvmask;		/* Signals that are blocked by receiving signals */
+#endif
 #endif
 
 	/* POSIX Named Message Queue Fields ****************************************** */
@@ -584,14 +611,18 @@ struct tcb_s {
 
 	struct xcptcontext xcp;		/* Interrupt register save area        */
 
-#if CONFIG_TASK_NAME_SIZE > 0
-	char name[CONFIG_TASK_NAME_SIZE + 1];	/* Task name (with NUL terminator)     */
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	uint32_t ram_start;		/* Start address of RAM partition for this app */
+	uint32_t ram_size;		/* Size of RAM partition for this app */
+	uint32_t uspace;		/* User space object for app binary */
+
+#ifdef CONFIG_ARMV7M_MPU
+	uint32_t mpu_regs[MPU_REGS];
+#endif
 #endif
 
-#ifdef CONFIG_DEBUG_MM_HEAPINFO
-	int curr_alloc_size;
-	int peak_alloc_size;
-	int num_alloc_free;
+#if CONFIG_TASK_NAME_SIZE > 0
+	char name[CONFIG_TASK_NAME_SIZE + 1];	/* Task name (with NUL terminator)     */
 #endif
 };
 
@@ -663,7 +694,7 @@ struct pthread_tcb_s {
 	/* POSIX Thread Specific Data ************************************************ */
 
 #if CONFIG_NPTHREAD_KEYS > 0
-	struct pthread_key_s pthread_data[CONFIG_NPTHREAD_KEYS];
+	void *key_data[PTHREAD_KEYS_MAX];
 #endif
 #if defined(CONFIG_BUILD_PROTECTED)
 	struct pthread_region_s *region;
@@ -677,6 +708,32 @@ typedef void (*sched_foreach_t)(FAR struct tcb_s *tcb, FAR void *arg);
 
 #endif							/* __ASSEMBLY__ */
 
+/* 
+ * @cond
+ * @internal
+ * {
+ */
+#define STKMON_MAX_LOGS (CONFIG_MAX_TASKS * 2)
+
+/* Structure for saving terminated task/pthread information with stack monitor. */
+struct stkmon_save_s {
+	clock_t timestamp;
+	pid_t chk_pid;
+	size_t chk_stksize;
+	size_t chk_peaksize;
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+	int chk_peakheap;
+#endif
+#if (CONFIG_TASK_NAME_SIZE > 0)
+	char chk_name[CONFIG_TASK_NAME_SIZE + 1];
+#endif
+};
+
+void stkmon_copy_log(struct stkmon_save_s *dest_arr);
+/* 
+ * }
+ * @endcond
+ */
 /********************************************************************************
  * Public Data
  ********************************************************************************/
@@ -834,6 +891,32 @@ pid_t task_vforkstart(FAR struct task_tcb_s *child);
  * @internal
  */
 void task_vforkabort(FAR struct task_tcb_s *child, int errcode);
+
+#ifdef CONFIG_BINFMT_LOADABLE
+/****************************************************************************
+ * Name: group_exitinfo
+ *
+ * Description:
+ *   This function may be called to when a task is loaded into memory.  It
+ *   will setup the to automatically unload the module when the task exits.
+ *
+ * Input Parameters:
+ *   pid     - The task ID of the newly loaded task
+ *   bininfo - This structure allocated with kmm_malloc().  This memory
+ *             persists until the task exits and will be used unloads
+ *             the module from memory.
+ *
+ * Returned Value:
+ *   This is a NuttX internal function so it follows the convention that
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ ****************************************************************************/
+/**
+ * @internal
+ */
+int group_exitinfo(pid_t pid, FAR struct binary_s *bininfo);
+#endif
 /**
  * @endcond
  */

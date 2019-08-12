@@ -21,8 +21,10 @@
 #include "RecorderWorker.h"
 
 namespace media {
-MediaRecorder::MediaRecorder() : mPMrImpl(new MediaRecorderImpl())
+MediaRecorder::MediaRecorder() : mPMrImpl(new MediaRecorderImpl(*this))
 {
+	mId = (uint64_t)this << 32;
+	mId = mId | (uint64_t)mPMrImpl.get();
 }
 
 recorder_result_t MediaRecorder::create()
@@ -30,7 +32,7 @@ recorder_result_t MediaRecorder::create()
 	return mPMrImpl->create();
 }
 
-recorder_result_t MediaRecorder::destroy() // sync call
+recorder_result_t MediaRecorder::destroy()
 {
 	return mPMrImpl->destroy();
 }
@@ -60,12 +62,17 @@ recorder_result_t MediaRecorder::pause()
 	return mPMrImpl->pause();
 }
 
-int MediaRecorder::getVolume()
+recorder_result_t MediaRecorder::getVolume(uint8_t *vol)
 {
-	return mPMrImpl->getVolume();
+	return mPMrImpl->getVolume(vol);
 }
 
-recorder_result_t MediaRecorder::setVolume(int vol)
+recorder_result_t MediaRecorder::getMaxVolume(uint8_t *vol)
+{
+	return mPMrImpl->getMaxVolume(vol);
+}
+
+recorder_result_t MediaRecorder::setVolume(uint8_t vol)
 {
 	return mPMrImpl->setVolume(vol);
 }
@@ -75,9 +82,29 @@ recorder_result_t MediaRecorder::setDataSource(std::unique_ptr<stream::OutputDat
 	return mPMrImpl->setDataSource(std::move(dataSource));
 }
 
-void MediaRecorder::setObserver(std::shared_ptr<MediaRecorderObserverInterface> observer)
+recorder_result_t MediaRecorder::setObserver(std::shared_ptr<MediaRecorderObserverInterface> observer)
 {
-	mPMrImpl->setObserver(observer);
+	return mPMrImpl->setObserver(observer);
+}
+
+recorder_result_t MediaRecorder::setDuration(int second)
+{
+	return mPMrImpl->setDuration(second);
+}
+
+recorder_result_t MediaRecorder::setFileSize(int byte)
+{
+	return mPMrImpl->setFileSize(byte);
+}
+
+bool MediaRecorder::operator==(const MediaRecorder& rhs)
+{
+	return this->mId == rhs.mId;
+}
+
+bool MediaRecorder::isRecording()
+{
+	return mPMrImpl->isRecording();
 }
 
 MediaRecorder::~MediaRecorder()

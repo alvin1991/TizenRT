@@ -18,7 +18,7 @@
 /********************************************************************************
  * include/signal.h
  *
- *   Copyright (C) 2007-2009, 2011, 2013-2014 Gregory Nutt. All rights reserved.
+ *   Copyright (C) 2007-2009, 2011, 2013-2017 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -136,6 +136,10 @@
 #endif
 #endif
 
+/* When SIGKILL is sent, a task/pthread which received signal will be terminated without any garbage collection.
+ * For freeing the allocated memory, user's own handler for SIGKILL is needed.
+ * CONFIG_SIGKILL_HANDLER should be enabled for user's own handler.
+ */		
 #ifndef CONFIG_SIG_SIGKILL
 #define SIGKILL       9			/* Sent to cause process to terminate */
 #else
@@ -143,6 +147,13 @@
 #endif
 
 /* The following are non-standard signal definitions */
+
+/* SIG_SIGBM_STATECB is used in binary Manager */
+#ifndef CONFIG_SIG_SIGBM_STATE
+#define SIGBM_STATE     15
+#else
+#define SIGBM_STATE     CONFIG_SIG_SIGBM_STATE
+#endif
 
 #ifndef CONFIG_DISABLE_PTHREAD
 #ifndef CONFIG_SIG_SIGCONDTIMEDOUT
@@ -163,10 +174,101 @@
 #endif
 
 /* SIGTM is used in Task Manager */
-#ifndef CONFIG_SIG_SIGTM
-#define SIGTM       18			/* Taskmgt signal */
+#ifndef CONFIG_SIG_SIGTM_UNICAST
+#define SIGTM_UNICAST       18			/* Taskmgt signal */
 #else
-#define SIGTM       CONFIG_SIG_SIGTM
+#define SIGTM_UNICAST       CONFIG_SIG_SIGTM_UNICAST
+#endif
+
+/* SIGTM_PAUSE is used in Task Manager */
+#ifndef CONFIG_SIG_SIGTM_PAUSE
+#define SIGTM_PAUSE       19			/* Taskmgt signal */
+#else
+#define SIGTM_PAUSE       CONFIG_SIG_SIGTM_PAUSE
+#endif
+
+/* SIGTM_RESUME is used in Task Manager */
+#ifndef CONFIG_SIG_SIGTM_RESUME
+#define SIGTM_RESUME       20			/* Taskmgt signal */
+#else
+#define SIGTM_RESUME       CONFIG_SIG_SIGTM_RESUME
+#endif
+
+/* SIGTM_BROADCAST is used in Task Manager */
+#ifndef CONFIG_SIG_SIGTM_BROADCAST
+#define SIGTM_BROADCAST       21			/* Taskmgt signal */
+#else
+#define SIGTM_BROADCAST       CONFIG_SIG_SIGTM_BROADCAST
+#endif
+
+/* SIG_SIGEL_WAKEUP is used in Event Loop */
+#ifndef CONFIG_SIG_SIGEL_WAKEUP
+#define SIGEL_WAKEUP       22			/* Eventloop signal */
+#else
+#define SIGEL_WAKEUP       CONFIG_SIG_SIGEL_WAKEUP
+#endif
+
+/* SIG_SIGTM_TERMINATION is used in Task Manager */
+#ifndef CONFIG_SIG_SIGTM_TERMINATION
+#define SIGTM_TERMINATION       23			/* Taskmgt signal */
+#else
+#define SIGTM_TERMINATION       CONFIG_SIG_SIGTM_TERMINATION
+#endif
+
+/* SIG_SIGEL_EVENT is used for event handling in Event Loop */
+#ifndef CONFIG_SIG_SIGEL_EVENT
+#define SIGEL_EVENT       24			/* Eventloop signal */
+#else
+#define SIGEL_EVENT       CONFIG_SIG_SIGEL_EVENT
+#endif
+
+/* SIG_SIGEL_EVENT is used for event handling in Event Loop */
+#ifndef CONFIG_SIG_MESSAGING
+#define SIGMSG_MESSAGING    25			/* Messaging signal */
+#else
+#define SIGMSG_MESSAGING    CONFIG_SIG_MESSAGING
+#endif
+
+/* SIG_IOTBUS_INT is used for iotbus interrupt handling */
+#ifndef CONFIG_SIG_IOTBUS_GPIO_FALLING
+#define SIG_IOTBUS_GPIO_FALLING		26
+#else
+#define SIG_IOTBUS_GPIO_FALLING		CONFIG_SIG_IOTBUS_GPIO_FALLING
+#endif
+
+/* SIG_IOTBUS_INT is used for iotbus interrupt handling */
+#ifndef CONFIG_SIG_IOTBUS_GPIO_RISING
+#define SIG_IOTBUS_GPIO_RISING		27
+#else
+#define SIG_IOTBUS_GPIO_RISING		CONFIG_SIG_IOTBUS_GPIO_RISING
+#endif
+
+/* SIG_IOTBUS_INT is used for iotbus interrupt handling */
+#ifndef CONFIG_SIG_IOTBUS_UART_TX_EMPTY
+#define SIG_IOTBUS_UART_TX_EMPTY	28
+#else
+#define SIG_IOTBUS_UART_TX_EMPTY	CONFIG_SIG_IOTBUS_UART_TX_EMPTY
+#endif
+
+/* SIG_IOTBUS_INT is used for iotbus interrupt handling */
+#ifndef CONFIG_SIG_IOTBUS_UART_TX_RDY
+#define SIG_IOTBUS_UART_TX_RDY		29
+#else
+#define SIG_IOTBUS_UART_TX_RDY		CONFIG_SIG_IOTBUS_UART_TX_RDY
+#endif
+
+/* SIG_IOTBUS_INT is used for iotbus interrupt handling */
+#ifndef CONFIG_SIG_IOTBUS_UART_RX_AVAIL
+#define SIG_IOTBUS_UART_RX_AVAIL	30
+#else
+#define SIG_IOTBUS_UART_RX_AVAIL	CONFIG_SIG_IOTBUS_UART_RX_AVAIL
+#endif
+
+/* SIG_IOTBUS_INT is used for iotbus interrupt handling */
+#ifndef CONFIG_SIG_IOTBUS_UART_RECEIVED
+#define SIG_IOTBUS_UART_RECEIVED	31
+#else
+#define SIG_IOTBUS_UART_RECEIVED	CONFIG_SIG_IOTBUS_UART_RECEIVED
 #endif
 
 /* sigprocmask() "how" definitions. Only one of the following can be specified: */
@@ -211,6 +313,13 @@
 #define SIG_DFL         ((_sa_handler_t)0)
 #define SIG_IGN         ((_sa_handler_t)0)
 #define SIG_HOLD        ((_sa_handler_t)1)   /* Used only with sigset() */
+
+#define COPY_SIGACTION(t, f) \
+	{ \
+		(t)->sa_sigaction = (f)->sa_sigaction; \
+		(t)->sa_mask      = (f)->sa_mask; \
+		(t)->sa_flags     = (f)->sa_flags; \
+	}
 
 /********************************************************************************
  * Global Type Declarations
@@ -308,6 +417,53 @@ extern "C" {
  * @since TizenRT v1.0
  */
 int kill(pid_t pid, int sig);
+
+/**
+ * @cond
+ * @internal
+ * @brief write signal information to standard error
+ * @details @b #include <signal.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v2.1 PRE
+ */
+void psignal(int signum, FAR const char *message);
+/**
+ * @endcond
+ */
+
+/**
+ * @cond
+ * @internal
+ * @brief write signal information to standard error
+ * @details @b #include <signal.h> \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v2.1 PRE
+ */
+void psiginfo(const siginfo_t *pinfo, const char *message);
+/**
+ * @endcond
+ */
+
+/* Pthread signal management APIs */
+/**
+ * @ingroup SIGNAL_KERNEL
+ * @brief send a signal to a pthread
+ * @details @b #include <signal.h> \n
+ * SYSTEM CALL API \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v1.0
+ */
+int pthread_kill(pthread_t thread, int sig);
+
+/**
+ * @ingroup SIGNAL_KERNEL
+ * @brief examine and change blocked signals
+ * @details @b #include <signal.h> \n
+ * SYSTEM CALL API \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v1.0
+ */
+int pthread_sigmask(int how, FAR const sigset_t *set, FAR sigset_t *oset);
 
 /**
  * @addtogroup SIGNAL_KERNEL
@@ -446,6 +602,22 @@ int sigsuspend(FAR const sigset_t *sigmask);
  * @since TizenRT v1.0
  */
 int sigwaitinfo(FAR const sigset_t *set, FAR struct siginfo *value);
+
+/**
+ * @cond
+ * @internal
+ * @ingroup SIGNAL_KERNEL
+ * @brief wait for queued signals
+ * @details @b #include <signal.h> \n
+ * SYSTEM CALL API \n
+ * POSIX API (refer to : http://pubs.opengroup.org/onlinepubs/9699919799/)
+ * @since TizenRT v2.1 PRE
+ */
+int sigwait(FAR const sigset_t *set, FAR int *sig);
+/**
+ * @endcond
+ */
+
 /**
  * @ingroup SIGNAL_KERNEL
  * @brief wait for queued signals

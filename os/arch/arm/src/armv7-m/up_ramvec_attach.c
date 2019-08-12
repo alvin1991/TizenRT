@@ -79,8 +79,8 @@
 #define intdbg    lldbg
 #define intvdbg   llvdbg
 #else
-#define intdbg(x...)
-#define intvdbg(x...)
+#define intdbg(...)
+#define intvdbg(...)
 #endif
 
 /****************************************************************************
@@ -122,7 +122,7 @@ int up_ramvec_attach(int irq, up_vector_t vector)
 
 	intvdbg("%s IRQ%d\n", vector ? "Attaching" : "Detaching", irq);
 
-	if ((unsigned)irq < NR_VECTORS) {
+	if ((unsigned)irq < ARMV7M_VECTAB_SIZE) {
 		irqstate_t flags;
 
 		/* If the new vector is NULL, then the vector is being detached. In

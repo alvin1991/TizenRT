@@ -20,6 +20,8 @@
 #define _POSIX_C_SOURCE 200809L
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
 
 #include <netdb.h>
 #ifdef __USE_MISC
@@ -37,6 +39,7 @@
 #include "logging/things_logger.h"
 #include "easy-setup/es_common.h"
 #include "cloud_connector.h"
+#include "things_iotivity_lock.h"
 #include "utils/things_wait_handler.h"
 #include "framework/things_data_manager.h"
 #include <wifi_manager/wifi_manager.h>
@@ -52,40 +55,34 @@ static OCRepPayload *make_dev_profile_payload(const st_device_s *dev_info);
 
 int CICheckDomain(const char *DomainName, char **pIP)
 {
-
 	char ipbuffer[20];
 	memset(ipbuffer, 0, 20);
-	char bytes[4];
+	unsigned int ip4_address = 0;
 
-	int ip4_address = 0;
+	if (DomainName != NULL) {
+		struct hostent *shost = gethostbyname((const char *)DomainName);
+		if (shost != NULL) {
+			char bytes[4];
+			memcpy(&ip4_address, shost->h_addr, sizeof(in_addr_t));
+			bytes[0] = ip4_address & 0XFF;
+			bytes[1] = (ip4_address >> 8) & 0XFF;
+			bytes[2] = (ip4_address >> 16) & 0XFF;
+			bytes[3] = (ip4_address >> 24) & 0XFF;
 
-	wifi_manager_result_e res = wifi_net_hostname_to_ip4(DomainName, &ip4_address);
-	if (res == 0) {
-		bytes[0] = ip4_address & 0XFF;
-		bytes[1] = (ip4_address >> 8) & 0XFF;
-		bytes[2] = (ip4_address >> 16) & 0XFF;
-		bytes[3] = (ip4_address >> 24) & 0XFF;
-		//54.85.39.78
-		//78.85.39.54
+			snprintf(ipbuffer, sizeof(ipbuffer), "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
 
-		snprintf(ipbuffer, sizeof(ipbuffer), "%d.%d.%d.%d", bytes[0], bytes[1], bytes[2], bytes[3]);
+			THINGS_LOG_D(TAG, "DNS resolved IP for[%s] is = %s", DomainName, ipbuffer);
 
-		THINGS_LOG_D(TAG, "DNS resolved IP for[%s] is =%s", DomainName, ipbuffer);
-
-		if (pIP != NULL) {
-			*pIP = things_strdup(ipbuffer);
-		}
-	} else {
-		THINGS_LOG_E(TAG, " Failed to get the IP, hard coding the ip");
-		snprintf(ipbuffer, sizeof(ipbuffer), "%s", "13.124.51.231");
-
-		usleep(500);
-		if (pIP != NULL) {
-			*pIP = things_strdup(ipbuffer);
+			if (pIP != NULL) {
+				*pIP = things_strdup(ipbuffer);
+			}
+			return 0;
 		}
 	}
 
-	return 0;
+	THINGS_LOG_E(TAG, " Failed to get the IP");
+
+	return -1;
 }
 
 /**
@@ -93,26 +90,23 @@ int CICheckDomain(const char *DomainName, char **pIP)
  * @param DomainName   wanted Domain-Name string to look-up IP address. (unit: const char*)
  * @param pIP          Variable pointer to store Founded IP address. (unit: char**)
  * @return             success : return 0 \n
- *                     failure : return > 0
+ *                     failure : return -1
  */
 int ci_connection_pre_check(const char *DomainName, char **pIP)
 {
-	int n_err = 0;				// Success return value
-
-	THINGS_LOG_D(TAG, "DomainName=%s, pIP=0x%X", DomainName, pIP);
-
-	if (CICheckDomain("samsung.com", NULL) != 0) {
-		if (DomainName == NULL) {
-			THINGS_LOG_E(TAG, "AP is Not Connected to Internet.");
-			return -1;
-		}
+	int n_err = CICheckDomain("samsung.com", NULL);
+	if (n_err != 0) {
+		THINGS_LOG_E(TAG, "AP is Not Connected to Internet");
+		return n_err;
 	}
-
-	if (DomainName != NULL) {
+	/** If AP Connected but DomainName is Null, do not check Domain return Success **/
+	if (DomainName == NULL) {
+		n_err = 0;
+		THINGS_LOG_V(TAG, "AP Connected but DomainName is Null\n");
+	} else {
 		n_err = CICheckDomain(DomainName, pIP);
 		THINGS_LOG_D(TAG, "Found IP = %s, n_err = %d", *pIP, n_err);
 	}
-
 	return n_err;
 }
 
@@ -136,7 +130,7 @@ OCStackResult things_cloud_signup(const char *host, const char *device_id, const
 	OCCallbackData cb_data;
 	OCRepPayload *registerPayload = NULL;
 	OCRepPayload *aafPayload = NULL;
-	char *mnid = NULL;	
+	char *mnid = NULL;
 
 	if (host == NULL || device_id == NULL || event_data == NULL || (event_data->accesstoken[0] == 0 && event_data->auth_code[0] == 0)) {
 		THINGS_LOG_E(TAG, "Invalid event_data.");
@@ -201,13 +195,10 @@ OCStackResult things_cloud_signup(const char *host, const char *device_id, const
 		OCRepPayloadSetPropObject(registerPayload, "aaf", aafPayload);
 	}
 
-#if defined(__WITH_DTLS__) || defined(__WITH_TLS__)
-	//CASelectCipherSuite(0x35, (1 << 4));
-#endif
-
 	if (things_is_empty_request_handle() == true) {
+		iotivity_api_lock();
 		result = OCDoResource(&g_req_handle, OC_REST_POST, targetUri, NULL, (OCPayload *) registerPayload, CT_ADAPTER_TCP, OC_LOW_QOS, &cb_data, NULL, 0);
-
+		iotivity_api_unlock();
 		if (result == OC_STACK_OK && timeoutHandler != NULL) {
 			if (things_add_request_handle(g_req_handle) == NULL) {
 				THINGS_LOG_E(TAG, "[Error] ReqHandles array space is small.");
@@ -269,7 +260,10 @@ OCStackResult things_cloud_session(const char *host, const char *uId, const char
 		goto no_memory;
 	}
 
-	if (OCGetPropertyValue(PAYLOAD_TYPE_DEVICE, OC_RSRVD_SPEC_VERSION, (void **)&coreVer) != OC_STACK_OK || (IoTivityVer = things_strdup(IOTIVITY_VERSION)) == NULL)
+	iotivity_api_lock();
+	OCStackResult getPropRes = OCGetPropertyValue(PAYLOAD_TYPE_DEVICE, OC_RSRVD_SPEC_VERSION, (void **)&coreVer);
+	iotivity_api_unlock();
+	if (getPropRes != OC_STACK_OK || (IoTivityVer = things_strdup(IOTIVITY_VERSION)) == NULL)
 //            OCGetPropertyValue(PAYLOAD_TYPE_PLATFORM, OC_RSRVD_PLATFORM_VERSION, (void**)&IoTivityVer) != OC_STACK_OK )
 	{
 		THINGS_LOG_E(TAG, "Getting Core_Spec_Ver or IoTivity_Ver is failed.");
@@ -288,13 +282,10 @@ OCStackResult things_cloud_session(const char *host, const char *uId, const char
 	OCRepPayloadSetPropString(loginoutPayload, KEY_ICORE_VER, coreVer);
 	OCRepPayloadSetPropString(loginoutPayload, KEY_IOTIVITY_VER, IoTivityVer);
 
-#if defined(__WITH_DTLS__) || defined(__WITH_TLS__)
-	//CASelectCipherSuite(0x35, (1 << 4));
-#endif
-
 	if (things_is_empty_request_handle() == true) {
+		iotivity_api_lock();
 		result = OCDoResource(&g_req_handle, OC_REST_POST, targetUri, NULL, (OCPayload *) loginoutPayload, CT_ADAPTER_TCP, OC_LOW_QOS, &cb_data, NULL, 0);
-
+		iotivity_api_unlock();
 		if (result == OC_STACK_OK && timeoutHandler != NULL) {
 			if (things_add_request_handle(g_req_handle) == NULL) {
 				THINGS_LOG_E(TAG, "[Error] ReqHandles array space is small.");
@@ -364,6 +355,7 @@ OCStackResult things_cloud_rsc_publish(char *host, things_resource_s **list, int
 	}
 
 	uint8_t numResource = 0;
+	iotivity_api_lock();
 	OCGetNumberOfResources(&numResource);
 	if (numResource > 0) {
 		for (uint8_t index = 0; index < numResource; index++) {
@@ -377,13 +369,13 @@ OCStackResult things_cloud_rsc_publish(char *host, things_resource_s **list, int
 			}
 		}
 	}
-
 	if (things_is_empty_request_handle() == true) {
 		result = OCRDPublish(&g_req_handle, host, CT_ADAPTER_TCP, resourceHandles, iter, &cb_data, OC_LOW_QOS);
 
 		if (result == OC_STACK_OK && timeoutHandler != NULL) {
 			if (things_add_request_handle(g_req_handle) == NULL) {
 				THINGS_LOG_E(TAG, "[Error] ReqHandles array space is small.");
+				iotivity_api_unlock();
 				return OC_STACK_ERROR;
 			}
 
@@ -391,6 +383,7 @@ OCStackResult things_cloud_rsc_publish(char *host, things_resource_s **list, int
 		}
 	}
 
+	iotivity_api_unlock();
 	return result;
 }
 
@@ -417,7 +410,9 @@ OCStackResult things_cloud_rsc_publish_with_device_id(char *host, const char *id
 	}
 
 	if (iter > 0) {
+		iotivity_api_lock();
 		result = OCRDPublishWithDeviceId(&g_req_handle, host, id, CT_ADAPTER_TCP, resourceHandles, iter, &cb_data, OC_LOW_QOS);
+		iotivity_api_unlock();
 	}
 //    if(result == OC_STACK_OK && timeoutHandler != NULL )
 //    {
@@ -447,7 +442,6 @@ OCStackResult things_cloud_dev_profile_publish(char *host, OCClientResponseHandl
 {
 	THINGS_LOG_D(TAG, "Device-profile Publish Start.");
 
-	long devCnt = 0;
 	st_device_s *dev_info = NULL;
 	int cntArrayPayload = 0;
 	OCRepPayload **arrayPayload = NULL;
@@ -456,13 +450,6 @@ OCStackResult things_cloud_dev_profile_publish(char *host, OCClientResponseHandl
 	OCDoHandle g_req_handle = NULL;
 	OCStackResult result = OC_STACK_ERROR;
 	char targetUri[MAX_URI_LENGTH * 2] = { 0, };
-	char *coreVer = NULL;
-	char *IoTivityVer = NULL;
-
-	if ((devCnt = dm_get_num_of_dev_cnt()) < 1) {
-		THINGS_LOG_E(TAG, "Not exist device to publish profile-Info of Device.");
-		return OC_STACK_ERROR;
-	}
 
 	snprintf(targetUri, MAX_URI_LENGTH * 2, "%s%s", host, OC_RSRVD_ACCOUNT_DEVPROFILE_URI);
 
@@ -478,25 +465,24 @@ OCStackResult things_cloud_dev_profile_publish(char *host, OCClientResponseHandl
 		goto no_memory;
 	}
 
-	if ((arrayPayload = (OCRepPayload **) things_malloc(sizeof(OCRepPayload *) * devCnt)) == NULL) {
+	if ((arrayPayload = (OCRepPayload **) things_malloc(sizeof(OCRepPayload *))) == NULL) {
 		THINGS_LOG_E(TAG, "[Error] memory allocation is failed.(arrayPayload)");
 		goto no_memory;
 	}
-	// Add All-device-info
-	for (unsigned long i = 0; i < devCnt; i++) {
-		if ((dev_info = dm_get_info_of_dev(i)) == NULL) {
-			THINGS_LOG_E(TAG, "[Error] device info structure is NULL.(seq=%d)", i);
+
+	if ((dev_info = dm_get_info_of_dev(0)) == NULL) {
+		THINGS_LOG_E(TAG, "[Error] device info structure is NULL");
+		goto no_memory;
+	}
+
+	if (dev_info->is_physical == 1) {
+		if ((arrayPayload[cntArrayPayload] = make_dev_profile_payload(dev_info)) == NULL) {
+			THINGS_LOG_E(TAG, "It's failed making payload of Device-Info.(seq=%d)", cntArrayPayload);
 			goto no_memory;
 		}
-
-		if (dev_info->is_physical == 1) {
-			if ((arrayPayload[cntArrayPayload] = make_dev_profile_payload(dev_info)) == NULL) {
-				THINGS_LOG_E(TAG, "It's failed making payload of Device-Info.(seq=%d)", cntArrayPayload);
-				goto no_memory;
-			}
-			cntArrayPayload++;
-		}
+		cntArrayPayload++;
 	}
+
 
 	if (cntArrayPayload < 1) {
 		THINGS_LOG_E(TAG, "[Error] pysical device is not exist. So, Can not Sending request for Device-Profile.");
@@ -504,11 +490,12 @@ OCStackResult things_cloud_dev_profile_publish(char *host, OCClientResponseHandl
 	}
 
 	size_t dimensions[MAX_REP_ARRAY_DEPTH] = { cntArrayPayload, 0, 0 };
-	OCRepPayloadSetPropObjectArray(payload, "devices", arrayPayload, dimensions);
+	OCRepPayloadSetPropObjectArray(payload, "devices", (const OCRepPayload **)arrayPayload, dimensions);
 
 	if (things_is_empty_request_handle() == true) {
+		iotivity_api_lock();
 		result = OCDoResource(&g_req_handle, OC_REST_POST, targetUri, NULL, (OCPayload *) payload, CT_ADAPTER_TCP, OC_LOW_QOS, &cb_data, NULL, 0);
-
+		iotivity_api_unlock();
 		if (result == OC_STACK_OK && timeoutHandler != NULL) {
 			if (things_add_request_handle((OCDoHandle) 1) == NULL) {
 				THINGS_LOG_E(TAG, "[Error] ReqHandles array space is small.");
@@ -594,11 +581,11 @@ OCStackResult things_cloud_refresh(const char *host, const char *uId, const char
 	THINGS_LOG_D(TAG, "granttype    =%s", VALUE_TYPE_GRANT_TOKEN);
 	THINGS_LOG_D(TAG, "refreshtoken =%s", refreshtoken);
 
-#if defined(__WITH_DTLS__) || defined(__WITH_TLS__)
-	//CASelectCipherSuite(0x35, (1 << 4));
-#endif
 
-	return OCDoResource(NULL, OC_REST_POST, targetUri, NULL, (OCPayload *) refreshPayload, CT_ADAPTER_TCP, OC_LOW_QOS, &cb_data, NULL, 0);
+	iotivity_api_lock();
+	OCStackResult res = OCDoResource(NULL, OC_REST_POST, targetUri, NULL, (OCPayload *) refreshPayload, CT_ADAPTER_TCP, OC_LOW_QOS, &cb_data, NULL, 0);
+	iotivity_api_unlock();
+	return res;
 
 no_memory:
 	OCRepPayloadDestroy(refreshPayload);
@@ -620,10 +607,11 @@ OCStackResult things_cloud_topic_publish_topic(const char *host, const char *top
 	if (!message) {
 		goto no_memory;
 	}
-#if defined(__WITH_DTLS__) || defined(__WITH_TLS__)
-	//CASelectCipherSuite(0x35, (1 << 4));
-#endif
-	return OCDoResource(NULL, OC_REST_POST, targetUri, NULL, (OCPayload *) message, CT_ADAPTER_TCP, OC_LOW_QOS, &cb_data, NULL, 0);
+
+	iotivity_api_lock();
+	OCStackResult res = OCDoResource(NULL, OC_REST_POST, targetUri, NULL, (OCPayload *) message, CT_ADAPTER_TCP, OC_LOW_QOS, &cb_data, NULL, 0);
+	iotivity_api_unlock();
+	return res;
 
 no_memory:
 	OCRepPayloadDestroy(message);
@@ -650,8 +638,10 @@ static OCRepPayload *make_dev_profile_payload(const st_device_s *dev_info)
 		return NULL;
 	}
 
+	iotivity_api_lock();
 	if (OCGetPropertyValue(PAYLOAD_TYPE_DEVICE, OC_RSRVD_SPEC_VERSION, (void **)&coreVer) != OC_STACK_OK) {
 		THINGS_LOG_E(TAG, "Getting CoreVersion of IoTivity is failed.");
+		iotivity_api_unlock();
 		goto GOTO_OUT;
 	}
 
@@ -659,9 +649,11 @@ static OCRepPayload *make_dev_profile_payload(const st_device_s *dev_info)
 
 	if (OCGetPropertyValue(PAYLOAD_TYPE_PLATFORM, OC_RSRVD_MFG_NAME, (void **)&manuFactory) != OC_STACK_OK) {
 		THINGS_LOG_E(TAG, "Getting manufacturer-name is failed.");
+		iotivity_api_unlock();
 		goto GOTO_OUT;
 	}
 
+	iotivity_api_unlock();
 	OCRepPayloadSetPropString(payload, "di", dev_info->device_id);
 	OCRepPayloadSetPropString(payload, "n", dev_info->name);
 	OCRepPayloadSetPropString(payload, "icv", coreVer);
@@ -674,7 +666,7 @@ static OCRepPayload *make_dev_profile_payload(const st_device_s *dev_info)
 	OCRepPayloadSetPropString(payload, "mnos", dev_info->ver_os);
 	OCRepPayloadSetPropString(payload, "mnhw", dev_info->ver_hw);
 	OCRepPayloadSetPropString(payload, "mnfv", dev_info->ver_fw);
-	OCRepPayloadSetPropString(payload, "vid", dev_info->vender_id);
+	OCRepPayloadSetPropString(payload, "vid", dev_info->vid);
 
 	THINGS_LOG_D(TAG, "di   = %s", dev_info->device_id);
 	THINGS_LOG_D(TAG, "n    = %s", dev_info->name);
@@ -687,7 +679,7 @@ static OCRepPayload *make_dev_profile_payload(const st_device_s *dev_info)
 	THINGS_LOG_D(TAG, "mnos = %s", dev_info->ver_os);
 	THINGS_LOG_D(TAG, "mnhw = %s", dev_info->ver_hw);
 	THINGS_LOG_D(TAG, "mnfv = %s", dev_info->ver_fw);
-	THINGS_LOG_D(TAG, "vid  = %s", dev_info->vender_id);
+	THINGS_LOG_D(TAG, "vid  = %s", dev_info->vid);
 
 	res = true;
 

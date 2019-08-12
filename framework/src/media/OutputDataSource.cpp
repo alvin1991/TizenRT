@@ -16,26 +16,35 @@
  *
  ******************************************************************/
 
+#include <tinyara/config.h>
+#include <assert.h>
+#include <debug.h>
+#include <unistd.h>
 #include <media/OutputDataSource.h>
+#include "MediaRecorderImpl.h"
+
+#ifndef CONFIG_OUTPUT_DATASOURCE_STACKSIZE
+#define CONFIG_OUTPUT_DATASOURCE_STACKSIZE 4096
+#endif
 
 namespace media {
 namespace stream {
-OutputDataSource::OutputDataSource()
-	: DataSource()
+OutputDataSource::OutputDataSource() :
+	DataSource()
 {
 }
 
-OutputDataSource::OutputDataSource(unsigned short channels, unsigned int sampleRate, int pcmFormat)
-	: DataSource(channels, sampleRate, pcmFormat)
+OutputDataSource::OutputDataSource(unsigned int channels, unsigned int sampleRate, audio_format_type_t pcmFormat) :
+	DataSource(channels, sampleRate, pcmFormat)
 {
 }
 
-OutputDataSource::OutputDataSource(const OutputDataSource& source)
-	: DataSource(source)
+OutputDataSource::OutputDataSource(const OutputDataSource &source) :
+	DataSource(source)
 {
 }
 
-OutputDataSource& OutputDataSource::operator=(const OutputDataSource& source)
+OutputDataSource &OutputDataSource::operator=(const OutputDataSource &source)
 {
 	DataSource::operator=(source);
 	return *this;
@@ -44,5 +53,7 @@ OutputDataSource& OutputDataSource::operator=(const OutputDataSource& source)
 OutputDataSource::~OutputDataSource()
 {
 }
+
 } // namespace stream
 } // namespace media
+

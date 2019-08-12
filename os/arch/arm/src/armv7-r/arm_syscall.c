@@ -95,7 +95,7 @@
 #if defined(CONFIG_DEBUG_SYSCALL)
 #define svcdbg(format, ...) lldbg(format, ##__VA_ARGS__)
 #else
-#define svcdbg(x...)
+#define svcdbg(...)
 #endif
 
 /****************************************************************************
@@ -526,6 +526,7 @@ uint32_t *arm_syscall(uint32_t *regs)
 	lldbg("SYSCALL from 0x%x\n", regs[REG_PC]);
 	current_regs = regs;
 	PANIC();
+	return regs;
 }
 
 #endif

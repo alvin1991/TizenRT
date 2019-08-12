@@ -85,10 +85,10 @@
 #define wdlldbg  lldbg
 #define wdllvdbg llvdbg
 #else
-#define wddbg(x...)
-#define wdvdbg(x...)
-#define wdlldbg(x...)
-#define wdllvdbg(x...)
+#define wddbg(...)
+#define wdvdbg(...)
+#define wdlldbg(...)
+#define wdllvdbg(...)
 #endif
 
 /****************************************************************************
@@ -388,6 +388,24 @@ static int wdog_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
 		if (lower->ops->keepalive) {	/* Optional */
 			ret = lower->ops->keepalive(lower);
+		} else {
+			ret = -ENOSYS;
+		}
+	}
+	break;
+
+	case WDIOC_PAUSE: {
+		if (lower->ops->ioctl) {
+			ret = lower->ops->ioctl(lower, WDIOC_PAUSE, 0);
+		} else {
+			ret = -ENOSYS;
+		}
+	}
+	break;
+
+	case WDIOC_RESUME: {
+		if (lower->ops->ioctl) {
+			ret = lower->ops->ioctl(lower, WDIOC_RESUME, 0);
 		} else {
 			ret = -ENOSYS;
 		}

@@ -94,7 +94,8 @@
 #ifdef CONFIG_BOARD_ASSERT_AUTORESET
 #include <sys/boardctl.h>
 #endif
-#ifdef CONFIG_DEBUG_DISPLAY_SYMBOL
+
+#if defined(CONFIG_DEBUG_DISPLAY_SYMBOL)
 #include <stdio.h>
 bool abort_mode = false;
 static bool recursive_abort = false;
@@ -475,13 +476,24 @@ void dump_stack(void)
 #ifdef CONFIG_STACK_COLORATION
 static void up_taskdump(FAR struct tcb_s *tcb, FAR void *arg)
 {
+	size_t used_stack_size;
+
+	used_stack_size = up_check_tcbstack(tcb);
 	/* Dump interesting properties of this task */
 
 #if CONFIG_TASK_NAME_SIZE > 0
-	lldbg("%s: PID=%d Stack Used=%lu of %lu\n", tcb->name, tcb->pid, (unsigned long)up_check_tcbstack(tcb), (unsigned long)tcb->adj_stack_size);
+	lldbg("%10s | %5d | %4d | %7lu / %7lu\n",
+			tcb->name, tcb->pid, tcb->sched_priority,
+			(unsigned long)used_stack_size, (unsigned long)tcb->adj_stack_size);
 #else
-	lldbg("PID: %d Stack Used=%lu of %lu\n", tcb->pid, (unsigned long)up_check_tcbstack(tcb), (unsigned long)tcb->adj_stack_size);
+	lldbg("%5d | %4d | %7lu / %7lu\n",
+			tcb->pid, tcb->sched_priority, (unsigned long)used_stack_size,
+			(unsigned long)tcb->adj_stack_size);
 #endif
+
+	if (used_stack_size == tcb->adj_stack_size) {
+		lldbg("  !!! PID (%d) STACK OVERFLOW !!! \n", tcb->pid);
+	}
 }
 #endif
 
@@ -495,6 +507,14 @@ static inline void up_showtasks(void)
 	lldbg("*******************************************\n");
 	lldbg("List of all tasks in the system:\n");
 	lldbg("*******************************************\n");
+
+#if CONFIG_TASK_NAME_SIZE > 0
+	lldbg("   NAME   |  PID  |  PRI |    USED /  TOTAL STACK\n");
+	lldbg("--------------------------------------------------\n");
+#else
+	lldbg("  PID | PRI |   USED / TOTAL STACK\n");
+	lldbg("----------------------------------\n");
+#endif
 
 	/* Dump interesting properties of each task in the crash environment */
 
@@ -742,16 +762,11 @@ static void up_dumpstate(void)
 
 	/* Get the limits on the user stack memory */
 
-	if (rtcb->pid == 0) {
-		ustackbase = g_idle_topstack - 4;
-		ustacksize = CONFIG_IDLETHREAD_STACKSIZE;
-	} else {
-		ustackbase = (uint32_t)rtcb->adj_stack_ptr;
-		ustacksize = (uint32_t)rtcb->adj_stack_size;
+	ustackbase = (uint32_t)rtcb->adj_stack_ptr;
+	ustacksize = (uint32_t)rtcb->adj_stack_size;
 #ifdef CONFIG_MPU_STACKGUARD
-		uguardsize = (uint32_t)rtcb->guard_size;
+	uguardsize = (uint32_t)rtcb->guard_size;
 #endif
-	}
 
 	lldbg("Current sp: %08x\n", sp);
 
@@ -902,9 +917,11 @@ static void up_dumpstate(void)
 static void _up_assert(int errorcode) noreturn_function;
 static void _up_assert(int errorcode)
 {
+#ifndef CONFIG_BOARD_ASSERT_SYSTEM_HALT
 	/* Are we in an interrupt handler or the idle task? */
 
 	if (g_upassert || current_regs || (this_task())->pid == 0) {
+#endif
 		(void)irqsave();
 		for (;;) {
 #ifdef CONFIG_ARCH_LEDS
@@ -914,9 +931,11 @@ static void _up_assert(int errorcode)
 			up_mdelay(250);
 #endif
 		}
+#ifndef CONFIG_BOARD_ASSERT_SYSTEM_HALT
 	} else {
 		exit(errorcode);
 	}
+#endif
 }
 
 /****************************************************************************
@@ -929,8 +948,9 @@ static void _up_assert(int errorcode)
 
 void up_assert(const uint8_t *filename, int lineno)
 {
+
 	board_autoled_on(LED_ASSERTION);
-#ifdef CONFIG_DEBUG_DISPLAY_SYMBOL
+#if defined(CONFIG_DEBUG_DISPLAY_SYMBOL)
 	/* First time, when code reaches here abort_mode will be false and
 	   for next iteration (recursive abort case), abort_mode is already
 	   set to true and thus we can assume that we are in recursive abort
@@ -948,13 +968,12 @@ void up_assert(const uint8_t *filename, int lineno)
 #endif
 	up_dumpstate();
 
-#ifdef CONFIG_BOARD_CRASHDUMP
+#if defined(CONFIG_BOARD_CRASHDUMP)
 	board_crashdump(up_getsp(), this_task(), (uint8_t *)filename, lineno);
 #endif
 
-#ifdef CONFIG_BOARD_ASSERT_AUTORESET
+#if defined(CONFIG_BOARD_ASSERT_AUTORESET)
 	(void)boardctl(BOARDIOC_RESET, 0);
 #endif
-
 	_up_assert(EXIT_FAILURE);
 }

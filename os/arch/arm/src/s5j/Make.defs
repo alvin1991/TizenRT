@@ -55,7 +55,7 @@
 
 HEAD_ASRC  = arm_vectortab.S
 
-ifeq ($(CONFIG_BUILD_KERNEL),y)
+ifeq ($(CONFIG_BUILD_PROTECTED),y)
 STARTUP_OBJS = crt0$(OBJEXT)
 endif
 
@@ -107,6 +107,20 @@ endif
 
 ifeq ($(CONFIG_BUILD_KERNEL),y)
 CMN_CSRCS += up_task_start.c up_pthread_start.c arm_signal_dispatch.c
+endif
+
+ifeq ($(CONFIG_BUILD_PROTECTED),y)
+CMN_CSRCS += up_task_start.c up_pthread_start.c up_userspace.c
+ifneq ($(CONFIG_DISABLE_SIGNALS),y)
+CMN_CSRCS += arm_signal_dispatch.c
+CMN_UASRCS += arm_signal_handler.S
+endif
+endif
+
+ifeq ($(CONFIG_ELF),y)
+CMN_CSRCS += arm_coherent_dcache.c
+else ifeq ($(CONFIG_MODULE),y)
+CMN_CSRCS += arm_coherent_dcache.c
 endif
 
 ifneq ($(CONFIG_SCHED_TICKLESS),y)
@@ -185,7 +199,7 @@ endif
 
 ifeq ($(CONFIG_S5J_SSS),y)
 VPATH += chip/sss
-CHIP_CSRCS += sss_driver_io.c	sssro_verify.c
+CHIP_CSRCS += sss_driver_io.c sssro_verify.c
 
 # built-in static library
 EXTRA_LIBS += chip/sss/libispdriver.a

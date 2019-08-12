@@ -16,7 +16,7 @@
  *
  ****************************************************************************/
 
-/// @file clock.c
+/// @file tc_clock.c
 
 /// @brief Test Case Example for Clock API
 
@@ -27,7 +27,8 @@
 #include <time.h>
 #include <tinyara/time.h>
 #include <sys/time.h>
-#include "../../../../../os/kernel/clock/clock.h"
+#include <sys/ioctl.h>
+#include <tinyara/testcase_drv.h>
 #include "tc_internal.h"
 
 const long double l_day = 86400;
@@ -155,48 +156,6 @@ static void tc_clock_clock_gettimeofday(void)
 	TC_SUCCESS_RESULT();
 }
 
-#ifndef CONFIG_SCHED_TICKLESS
-/**
-* @fn                   :tc_clock_clock_timer
-* @brief                :This function must be called once every time the real time clock interrupt occurs
-*                        The interval of this clock interrupt must be USER_PER_TICK
-* @scenario             :called once every time the real time clock interrupt occurs
-* API's covered         :clock_timer
-* Preconditions         :none
-* Postconditions        :none
-* @return               :void
-*/
-
-static void tc_clock_clock_timer(void)
-{
-	systime_t itime = g_system_timer;
-	clock_timer();
-	itime++;
-	TC_ASSERT_EQ("clock_timer", itime, g_system_timer);
-
-	TC_SUCCESS_RESULT();
-}
-#endif
-
-/**
-* @fn                   :tc_clock_clock_systimer
-* @brief                :Return the current value of the 32 bit system timer counter
-* @scenario             :Return the current value of the 32 bit system timer counter
-* API's covered         :clock_systimer
-* Preconditions         :none
-* Postconditions        :none
-* @return               :void
-*/
-
-static void tc_clock_clock_systimer(void)
-{
-	systime_t itime = ERROR;
-	itime = clock_systimer();
-	TC_ASSERT_GEQ("clock_systimer", itime, 0);
-
-	TC_SUCCESS_RESULT();
-}
-
 /**
 * @fn                   :tc_clock_clock_abstime2ticks
 * @brief                :Convert an absolute timespec to ticks
@@ -208,24 +167,13 @@ static void tc_clock_clock_systimer(void)
  */
 static void tc_clock_clock_abstime2ticks(void)
 {
-	int ret_chk;
-	int base_tick;
-	int comparison_tick;
-	struct timespec base_time;
-	struct timespec comparison_time;
+	int fd;
+	int ret;
 
-	clock_gettime(CLOCK_REALTIME, &base_time);
-	comparison_time.tv_sec = base_time.tv_sec + 1;
+	fd = tc_get_drvfd();
+	ret = ioctl(fd, TESTIOC_CLOCK_ABSTIME2TICKS_TEST, 0);
 
-	ret_chk = clock_abstime2ticks(CLOCK_REALTIME, &base_time, &base_tick);
-	TC_ASSERT_EQ("clock_abstime2ticks", ret_chk, OK);
-
-	ret_chk = clock_abstime2ticks(CLOCK_REALTIME, &comparison_time, &comparison_tick);
-	TC_ASSERT_EQ("clock_abstime2ticks", ret_chk, OK);
-
-	/* the difference can be 0 or 1, but should be smaller than 2 */
-
-	TC_ASSERT_GEQ("clock_abstime2ticks", comparison_tick - (base_tick * 2), 2);
+	TC_ASSERT_NEQ("clock_abstime2ticks", ret, ERROR);
 
 	TC_SUCCESS_RESULT();
 }
@@ -236,10 +184,6 @@ static void tc_clock_clock_abstime2ticks(void)
 
 int clock_main(void)
 {
-#ifndef CONFIG_SCHED_TICKLESS
-	tc_clock_clock_timer();
-#endif
-	tc_clock_clock_systimer();
 	tc_clock_clock_gettimeofday();
 	tc_clock_clock_set_get_time();
 	tc_clock_clock_getres();

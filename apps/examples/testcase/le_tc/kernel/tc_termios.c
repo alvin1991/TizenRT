@@ -17,8 +17,14 @@
  ****************************************************************************/
 
 /// @file tc_termios.c
+
 /// @brief Test Case Example for Termios API
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
 #include <tinyara/config.h>
+#include <unistd.h>
 #include <termios.h>
 #include <errno.h>
 #include <stdio.h>

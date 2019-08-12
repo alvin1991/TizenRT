@@ -90,6 +90,10 @@ static ssize_t adc_read(FAR struct file *fielp, FAR char *buffer,
 static int     adc_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
 static int     adc_receive(FAR struct adc_dev_s *dev, uint8_t ch,
 			   int32_t data);
+static void    adc_notify(FAR struct adc_dev_s *dev);
+#ifndef CONFIG_DISABLE_POLL
+static int     adc_poll(FAR struct file *filep, struct pollfd *fds, bool setup);
+#endif
 
 /****************************************************************************
  * Private Data
@@ -102,7 +106,7 @@ static const struct file_operations g_adc_fops = {
 	0,		/* seek */
 	adc_ioctl,	/* ioctl */
 #ifndef CONFIG_DISABLE_POLL
-	0,		/* poll */
+	adc_poll,		/* poll */
 #endif
 };
 
@@ -194,10 +198,26 @@ static int adc_close(FAR struct file *filep)
 	FAR struct adc_dev_s *dev   = inode->i_private;
 	irqstate_t            flags;
 	int                   ret = OK;
+#ifndef CONFIG_DISABLE_POLL
+	int                   i;
+#endif
 
 	if (sem_wait(&dev->ad_closesem) != OK) {
 		ret = -errno;
 	} else {
+#ifndef CONFIG_DISABLE_POLL
+		/* Check if this file is registered in a list of waiters for polling.
+		 * For example, when task A is blocked by calling poll and task B try to terminate task A,
+		 * a pollfd of A remains in this list. If it is, it should be cleared.
+		 */
+		for (i = 0; i < CONFIG_ADC_NPOLLWAITERS; i++) {
+			struct pollfd *fds = dev->fds[i];
+			if (fds && (FAR struct file *)fds->filep == filep) {
+				dev->fds[i] = NULL;
+			}
+		}
+#endif
+
 		/*
 		 * Decrement the references to the driver.  If the reference
 		 * count will decrement to 0, then uninitialize the driver.
@@ -381,15 +401,131 @@ static int adc_receive(FAR struct adc_dev_s *dev, uint8_t ch, int32_t data)
 		/* Increment the tail of the circular buffer */
 		fifo->af_tail = nexttail;
 
-		if (dev->ad_nrxwaiters > 0) {
-			sem_post(&fifo->af_sem);
-		}
+		adc_notify(dev);
 
 		errcode = OK;
 	}
 
 	return errcode;
 }
+
+/****************************************************************************
+ * Name: adc_pollnotify
+ ****************************************************************************/
+
+#ifndef CONFIG_DISABLE_POLL
+static void adc_pollnotify(FAR struct adc_dev_s *dev, uint32_t type)
+{
+	int i;
+
+	for (i = 0; i < CONFIG_ADC_NPOLLWAITERS; i++) {
+		struct pollfd *fds = dev->fds[i];
+		if (fds) {
+			fds->revents |= type;
+			sem_post(fds->sem);
+		}
+	}
+}
+#endif
+
+/****************************************************************************
+ * Name: adc_notify
+ ****************************************************************************/
+
+static void adc_notify(FAR struct adc_dev_s *dev)
+{
+	FAR struct adc_fifo_s *fifo = &dev->ad_recv;
+
+	/* If there are threads waiting for read data, then signal one of them
+	* that the read data is available.
+	*/
+
+	if (dev->ad_nrxwaiters > 0) {
+		sem_post(&fifo->af_sem);
+	}
+
+	/* If there are threads waiting on poll() for data to become available,
+	* then wake them up now.
+	*/
+
+#ifndef CONFIG_DISABLE_POLL
+	adc_pollnotify(dev, POLLIN);
+#endif
+}
+
+/************************************************************************************
+ * Name: adc_poll
+ ************************************************************************************/
+
+#ifndef CONFIG_DISABLE_POLL
+static int adc_poll(FAR struct file *filep, struct pollfd *fds, bool setup)
+{
+	FAR struct inode     *inode = filep->f_inode;
+	FAR struct adc_dev_s *dev   = inode->i_private;
+	irqstate_t flags;
+	int ret = 0;
+	int i;
+
+	/* Interrupts must be disabled while accessing the list of poll structures
+	* and ad_recv FIFO.
+	*/
+
+	flags = irqsave();
+
+	if (setup) {
+		/* Ignore waits that do not include POLLIN */
+
+		if ((fds->events & POLLIN) == 0) {
+			ret = -EDEADLK;
+			goto return_with_irqdisabled;
+		}
+
+		/* This is a request to set up the poll.  Find an available
+		* slot for the poll structure reference
+		*/
+
+		for (i = 0; i < CONFIG_ADC_NPOLLWAITERS; i++) {
+			/* Find an available slot */
+
+			if (!dev->fds[i]) {
+				/* Bind the poll structure and this slot */
+
+				dev->fds[i] = fds;
+				fds->priv   = &dev->fds[i];
+				fds->filep = (void *)filep;
+				break;
+			}
+		}
+
+		if (i >= CONFIG_ADC_NPOLLWAITERS) {
+			fds->priv    = NULL;
+			fds->filep   = NULL;
+			ret          = -EBUSY;
+			goto return_with_irqdisabled;
+		}
+
+		/* Should we immediately notify on any of the requested events? */
+
+		if (dev->ad_recv.af_head != dev->ad_recv.af_tail) {
+			adc_pollnotify(dev, POLLIN);
+		}
+	} else if (fds->priv) {
+		/* This is a request to tear down the poll. */
+
+		struct pollfd **slot = (struct pollfd **)fds->priv;
+
+		/* Remove all memory of the poll setup */
+
+		*slot                = NULL;
+		fds->priv            = NULL;
+		fds->filep           = NULL;
+	}
+
+return_with_irqdisabled:
+	irqrestore(flags);
+	return ret;
+}
+#endif
 
 /****************************************************************************
  * Public Functions

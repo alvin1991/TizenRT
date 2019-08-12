@@ -56,6 +56,7 @@
 
 #include <tinyara/config.h>
 
+#include <sys/types.h>
 #include <pthread.h>
 #include <errno.h>
 #include <debug.h>
@@ -119,7 +120,7 @@ int pthread_mutexattr_init(FAR pthread_mutexattr_t *attr)
 		attr->type = PTHREAD_MUTEX_DEFAULT;
 #endif
 
-#ifdef CONFIG_PTHREAD_MUTEX_BOTH
+#ifndef CONFIG_PTHREAD_MUTEX_UNSAFE
 #ifdef CONFIG_PTHREAD_MUTEX_DEFAULT_UNSAFE
 		attr->robust  = PTHREAD_MUTEX_STALLED;
 #else

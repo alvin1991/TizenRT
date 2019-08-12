@@ -55,6 +55,7 @@
  ****************************************************************************/
 #include <tinyara/config.h>
 
+#include <sys/types.h>
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,44 +87,150 @@
 #  define EXAMPLE_TIMER_SIGNO    17
 #endif
 
-#define TIMER_THEAD_SIZE                512
-#define TIMER_THEAD_PRIORITY            100
+#define TIMER_THEAD_SIZE                2048
+#define TIMER_THEAD_PRIORITY            255
 
-/****************************************************************************
- * Private Data
- ****************************************************************************/
-static sem_t g_sem;
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+#define ALLOWABLE_PERCENTAGE (0.1)
+#endif
 
+struct timer_args {
+	int fd;
+	int count;
+	int intval;
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+	int devno;
+#endif
+};
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-static void timer_sighandler(int signo, FAR siginfo_t *siginfo,
-							 FAR void *context)
-{
-	/*
-	 * Does nothing in this example except for increment a count of signals
-	 * received.
-	 *
-	 * NOTE: The use of signal handler is not recommended if you are concerned
-	 * about the signal latency.  Instead, a dedicated, high-priority thread
-	 * that waits on sigwaitinfo() is recommended.  High priority is required
-	 * if you want a deterministic wake-up time when the signal occurs.
-	 */
-	sem_post(&g_sem);
-}
 
 static pthread_addr_t timer_thread(pthread_addr_t arg)
 {
-	int nbr = 0;
-	int i = (int)arg;
+	struct timer_args *pargs = (struct timer_args *)arg;
+	struct timer_notify_s notify;
+	int count = pargs->count;
+	int intval = pargs->intval;
+	int fd = pargs->fd;
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+	int frt_fd;
+	char path[_POSIX_PATH_MAX];
+	int frt_dev;
+	struct timer_status_s before;
+	struct timer_status_s after;
+	uint32_t time_diff;
+	uint32_t expected_time;
+#endif
 
-	while (i--) {
-		sem_wait(&g_sem);
-		fprintf(stdout, "time limits(%d)\n", ++nbr);
+	sigset_t sig_set;
+	sigemptyset(&sig_set);
+	sigaddset(&sig_set, EXAMPLE_TIMER_SIGNO);
+
+	pthread_sigmask(SIG_BLOCK, &sig_set, NULL);
+
+	/*
+	 * Register a callback for notifications using the configured signal.
+	 * NOTE: If no callback is attached, the timer stop at the first interrupt.
+	 */
+	fprintf(stdout, "Attach timer handler\n");
+
+	notify.arg   = NULL;
+	notify.pid   = (pid_t)getpid();
+	notify.signo = EXAMPLE_TIMER_SIGNO;
+
+	if (ioctl(fd, TCIOC_NOTIFICATION,
+			(unsigned long)((uintptr_t)&notify)) < 0) {
+		fprintf(stderr, "ERROR: Failed to set the timer handler: %d\n", errno);
+		goto error;
 	}
 
-	pthread_exit(NULL);
+	/* Set the timer interval */
+	fprintf(stdout, "Set timer interval to %lu, repeat %d\n",
+			(unsigned long)intval, count);
 
+	if (ioctl(fd, TCIOC_SETTIMEOUT, intval) < 0) {
+		fprintf(stderr, "ERROR: Failed to set the timer interval: %d\n", errno);
+		goto error;
+	}
+
+	/* Start the timer */
+	fprintf(stdout, "Start the timer\n");
+	if (ioctl(fd, TCIOC_START, 0) < 0) {
+		fprintf(stderr, "ERROR: Failed to start the timer: %d\n", errno);
+		goto error;
+	}
+
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+	/* Open the FRTimer device */
+	if (pargs->devno == 0) {
+		frt_dev = 1;
+	} else {
+		frt_dev = 0;
+	}
+	snprintf(path, _POSIX_PATH_MAX, TIMER_DEVNAME, frt_dev);
+	fprintf(stdout, "FRT Open %s\n", path);
+
+	expected_time = count * intval;
+
+	frt_fd = open(path, O_RDONLY);
+	if (frt_fd < 0) {
+		fprintf(stderr, "ERROR: Failed to open Free Run Timer: %d\n", errno);
+		goto error;
+	}
+	if (ioctl(frt_fd, TCIOC_SETFREERUN, TRUE) < 0) {
+		fprintf(stderr, "ERROR: Failed to set Free Run Timer: %d\n", errno);
+		goto error;
+	}
+	if (ioctl(frt_fd, TCIOC_START, TRUE) < 0) {
+		fprintf(stderr, "ERROR: Failed to start Free Run Timer: %d\n", errno);
+		goto error;
+	}
+
+	if (ioctl(frt_fd, TCIOC_GETSTATUS, (unsigned long)(uintptr_t)&before) < 0) {
+		fprintf(stderr, "ERROR: Failed to get Free Run Timer status: %d\n", errno);
+		goto error;
+	}
+
+#endif
+	while (count--) {
+		sigwaitinfo(&sig_set, NULL);
+	}
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+	if (ioctl(frt_fd, TCIOC_GETSTATUS, (unsigned long)(uintptr_t)&after) < 0) {
+		fprintf(stderr, "ERROR: Failed to get Free Run Timer status: %d\n", errno);
+	}
+#endif
+	/* In high resolution timers, timer has to be stopped immediately once
+	the sigwait handling is completed. If not timer interrupt would keep
+	posting the events which would results in stack overflows. */
+	if (ioctl(fd, TCIOC_STOP, 0) < 0) {
+		fprintf(stderr, "ERROR: Failed to stop the timer: %d\n", errno);
+	}
+
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+	if (ioctl(frt_fd, TCIOC_STOP, 0) < 0) {
+		fprintf(stderr, "ERROR: Failed to stop the Free Run Timer: %d\n", errno);
+	}
+#endif
+	fprintf(stdout, "Stop the timer\n");
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+	fprintf(stdout, ">> Summary\n");
+
+	time_diff = after.timeleft - before.timeleft;
+	fprintf(stdout, "\tExpected %d, Estimated %d, Ratio %.9f\n", expected_time, time_diff, ((float)time_diff / (float)expected_time) - 1.0);
+	if (((float)expected_time * (1.0 + ALLOWABLE_PERCENTAGE / 100.0)) > (float)time_diff) {
+		fprintf(stdout, "\tPASS : Estimated Elapsed time is within the expected range.\n");
+	} else {
+		fprintf(stdout, "\tFAIL : There are many missing timer interrupts.\n");
+	}
+#endif
+error:
+	pthread_sigmask(SIG_UNBLOCK, &sig_set, NULL);
+	pthread_exit(NULL);
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+	close(frt_fd);
+#endif
 	return NULL;
 }
 
@@ -133,12 +240,6 @@ static pthread_t create_timer_thread(void *arg)
 	pthread_attr_t attr;
 	struct sched_param sparam;
 	int ret = OK;
-
-	ret = sem_init(&g_sem, 0, 0);
-	if (ret != 0) {
-		fprintf(stderr, "failed to set semaphore init(%d)\n", ret);
-		return -ret;
-	}
 
 	ret = pthread_attr_init(&attr);
 	if (ret != 0) {
@@ -171,7 +272,7 @@ static pthread_t create_timer_thread(void *arg)
 		return -ret;
 	}
 
-	pthread_setname_np(tid, "time handler thread");
+	pthread_setname_np(tid, "time sigwait thread");
 	pthread_detach(tid);
 
 	return tid;
@@ -189,7 +290,7 @@ static pthread_t create_timer_thread(void *arg)
 		"  -n [REPEAT]  Number of samples to repeat test.\n" \
 		"               DEFAULT 10\n" \
 		"  -t [INTR]    Timer interval\n" \
-		"               Millisecond unit. (DEFAULT 1000msec)\n" \
+		"               Microsecond unit. (DEFAULT 1000000usec)\n" \
 		"     -h        display this help and exit\n"
 
 /****************************************************************************
@@ -201,9 +302,8 @@ int main(int argc, FAR char *argv[])
 int timer_main(int argc, char *argv[])
 #endif
 {
-	struct timer_notify_s notify;
-	struct sigaction act;
-	int tid = 0;
+	pthread_t tid;
+	struct timer_args args;
 	int fd;
 	int opt = 0;
 
@@ -217,7 +317,7 @@ int timer_main(int argc, char *argv[])
 	while ((opt = getopt(argc, argv, "t:n:f:h")) != -1) {
 		switch (opt) {
 		case 't':
-			intval = strtol(optarg, NULL, 10) * MSEC_PER_SEC;
+			intval = strtol(optarg, NULL, 10);
 			break;
 		case 'n':
 			repeat = strtol(optarg, NULL, 10);
@@ -232,14 +332,14 @@ int timer_main(int argc, char *argv[])
 		}
 	}
 
-	if (optind >= argc) {
+	if (optind > argc) {
 		fprintf(stderr, "timer: invalid option -- \'%s\'\n", argv[optind]);
 		fprintf(stdout, USAGE);
 		return EXIT_SUCCESS;
 	}
 
 	/* Open the timer device */
-	sprintf(path, TIMER_DEVNAME, dev);
+	snprintf(path, _POSIX_PATH_MAX, TIMER_DEVNAME, dev);
 	fprintf(stdout, "Open %s\n", path);
 
 	fd = open(path, O_RDONLY);
@@ -252,86 +352,26 @@ int timer_main(int argc, char *argv[])
 		repeat = EXAMPLE_TIMER_NSAMPLES;
 	}
 
-	/* Create Time Handler Thread */
-	tid = create_timer_thread((void *)repeat);
-	if (tid < 0) {
-		close(fd);
-		return EXIT_FAILURE;
-	}
-
 	if (intval <= 0) {
 		intval = EXAMPLE_TIMER_INTERVAL;
 	}
 
-	/* Set the timer interval */
-	fprintf(stdout, "Set timer interval to %lu\n",
-			(unsigned long)intval);
+	args.count = repeat;
+	args.fd = fd;
+	args.intval = intval;
+#ifdef CONFIG_EXAMPLES_TIMER_FRT_MEASUREMENT
+	args.devno = dev;
+#endif
 
-	if (ioctl(fd, TCIOC_SETTIMEOUT, intval) < 0) {
-		fprintf(stderr, "ERROR: Failed to set the timer interval: %d\n", errno);
-		close(fd);
-		return EXIT_FAILURE;
-	}
-
-	/*
-	 * Attach a signal handler to catch the notifications.  NOTE that using
-	 * signal handler is very slow.  A much more efficient thing to do is to
-	 * create a separate pthread that waits on sigwaitinfo() for timer events.
-	 * Much less overhead in that case.
-	 */
-	act.sa_sigaction = timer_sighandler;
-	act.sa_flags     = SA_SIGINFO;
-
-	(void)sigfillset(&act.sa_mask);
-	(void)sigdelset(&act.sa_mask, EXAMPLE_TIMER_SIGNO);
-
-	if (sigaction(EXAMPLE_TIMER_SIGNO, &act, NULL) != OK) {
-		fprintf(stderr, "ERROR: Fsigaction failed: %d\n", errno);
-		close(fd);
-		return EXIT_FAILURE;
-	}
-
-	/*
-	 * Register a callback for notifications using the configured signal.
-	 * NOTE: If no callback is attached, the timer stop at the first interrupt.
-	 */
-	fprintf(stdout, "Attach timer handler\n");
-
-	notify.arg   = NULL;
-	notify.pid   = getpid();
-	notify.signo = EXAMPLE_TIMER_SIGNO;
-
-	if (ioctl(fd, TCIOC_NOTIFICATION,
-			(unsigned long)((uintptr_t)&notify)) < 0) {
-		fprintf(stderr, "ERROR: Failed to set the timer handler: %d\n", errno);
-		close(fd);
-		return EXIT_FAILURE;
-	}
-
-	/* Start the timer */
-	fprintf(stdout, "Start the timer\n");
-	if (ioctl(fd, TCIOC_START, 0) < 0) {
-		fprintf(stderr, "ERROR: Failed to start the timer: %d\n", errno);
+	/* Create Time Handler Thread */
+	tid = create_timer_thread((void *)&args);
+	if (tid < 0) {
 		close(fd);
 		return EXIT_FAILURE;
 	}
 
 	/* Wait a bit showing timer thread */
 	pthread_join(tid, NULL);
-	sem_destroy(&g_sem);
-
-	/* Stop the timer */
-	fprintf(stdout, "Stop the timer\n");
-
-	if (ioctl(fd, TCIOC_STOP, 0) < 0) {
-		fprintf(stderr, "ERROR: Failed to stop the timer: %d\n", errno);
-		close(fd);
-		return EXIT_FAILURE;
-	}
-
-	/* Detach the signal handler */
-	act.sa_handler = SIG_DFL;
-	sigaction(EXAMPLE_TIMER_SIGNO, &act, NULL);
 
 	/* Close the timer driver */
 	fprintf(stdout, "Finished\n");

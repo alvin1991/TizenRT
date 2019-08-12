@@ -52,7 +52,7 @@
 
 # Add the internal C files to the build
 
-CSRCS += lib_stream.c lib_filesem.c
+CSRCS += lib_stream.c lib_filesem.c lib_xorshift128.c
 
 # Add C files that depend on file OR socket descriptors
 
@@ -90,6 +90,12 @@ CSRCS += lib_match.c lib_crc32.c lib_crc16.c lib_crc8.c lib_dumpbuffer.c
 
 ifeq ($(CONFIG_DEBUG),y)
 CSRCS += lib_dbg.c
+endif
+
+# Environment search path support
+
+ifeq ($(CONFIG_LIB_ENVPATH),y)
+CSRCS += lib_envpath.c
 endif
 
 # Add the misc directory to the build

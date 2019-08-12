@@ -10,12 +10,14 @@ Make.dep
 .#*
 *#
 *.orig
+*.bak
 *.rej
 .swp
 .*.swp
 .gdbinit
 cscope.out
 tags
+*.pyc
 
 # ctags index file
 .tags
@@ -25,3 +27,5 @@ tags
 /tmp/
 *.tmp
 *.tmp.*
+*.log
+*.log.old

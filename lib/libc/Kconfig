@@ -51,9 +51,16 @@ config LIBC_FLOATINGPOINT
 		By default, floating point
 		support in printf, sscanf, etc. is disabled.
 
+config LIBC_FLOATPRECISION
+	int "Default floating point Precision value"
+	depends on LIBC_FLOATINGPOINT
+	default 6
+	---help---
+		Precision point support for floating point values.
+
 config LIBC_SCANSET
         bool "Scanset support"
-        default n 
+        default y 
         ---help---
                 Add scanset support to sscanf().
 
@@ -150,25 +157,6 @@ config EOL_IS_EITHER_CRLF
 
 endchoice
 
-config POSIX_SPAWN_PROXY_STACKSIZE
-	int "Spawn Stack Size"
-	default 1024
-	---help---
-		If posix_spawn[p]() and task_spawn() use I/O redirection options,
-		they will require an intermediary/proxy task to muck with the file
-		descriptors.  This configuration item specifies the stack size
-		used for the proxy. Default: 1024 bytes.
-
-config TASK_SPAWN_DEFAULT_STACKSIZE
-	int "Default task_spawn Stack Size"
-	default 2048
-	depends on !ARCH_ADDRENV
-	---help---
-		The actual size to use for the child task's stack can be set with
-		task_spawnattr_setstacksize().  This value specifies the default
-		stack size to use if task_spawnattr_setstacksize() is not used.
-		Default: 2048.
-
 config LIBC_STRERROR
 	bool "Enable strerror"
 	default n
@@ -258,6 +246,10 @@ config LIB_SENDFILE_BUFSIZE
 	default 512
 	---help---
 		Size of the I/O buffer to allocate in sendfile().  Default: 512b
+
+config LIBC_ARCH_ELF
+	bool "Architecture support for ELF"
+	default n
 
 config ARCH_HAVE_ROMGETC
 	bool
@@ -376,6 +368,13 @@ config MEMSET_64BIT
 		Compiles memset() for architectures that suppport 64-bit operations
 		efficiently.
 
+config ARCH_STPNCPY
+	bool "stpncpy()"
+	default n
+	---help---
+		Select this option if the architecture provides an optimized version
+		of strpcpy().
+
 config ARCH_STRCHR
 	bool "strchr()"
 	default n
@@ -426,6 +425,36 @@ config ARCH_BZERO
 		of bzero().
 
 endif # ARCH_OPTIMIZED_FUNCTIONS
+
+config LIB_ENVPATH
+        bool "Support PATH Environment Variable"
+        default n
+        depends on !DISABLE_ENVIRON
+        ---help---
+                Use the contents of the common environment variable to locate executable
+                or library files.  Default: n
+
+comment "Program Execution Options"
+
+config LIBC_EXECFUNCS
+	bool "Enable exec[l|v] Support"
+	default n
+	depends on BINFMT_ENABLE
+	---help---
+		Enable support for the exec[l|v] family of functions that can be
+		used to start other programs, terminating the current program and
+		the posix_spawn() familty of functions that can be used start other
+		programs without terminating the current program.  The typical
+		usage of the exec[l|v] functions is (1) first call vfork() to create
+		a new thread, then (2) call exec[l|v] to replace the new thread with
+		a program from the file system.
+
+		NOTE 1: This two step process start is completely unnecessary in
+		NuttX and is provided only for compatibily with Unix systems.  These
+		functions are essentially just wrapper functions that (1) call the
+		non-standard binfmt function 'exec', and then (2) exit(0).  Since
+		the new thread will be terminated by the exec[l|v] call, it really
+		served no purpose other than to suport Unix compatility.
 
 comment "Non-standard Library Support"
 

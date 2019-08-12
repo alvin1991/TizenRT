@@ -29,8 +29,11 @@
 #include <protocols/dhcpc.h>
 #include <slsi_wifi/slsi_wifi_api.h>
 
-
+#ifdef CONFIG_WIFI_MANAGER
+#define NET_DEVNAME	CONFIG_WIFIMGR_STA_IFNAME
+#else
 #define NET_DEVNAME "wl1"
+#endif
 
 #define WAKAAMA_CHECK_ARG() \
 	do {\
@@ -40,10 +43,6 @@
 		} \
 	} while (0);
 
-
-#if defined(CONFIG_NET_LWIP_DHCPC) && !defined(CONFIG_NETUTILS_DHCPC)
-struct dhcp dhcp_handle;
-#endif
 
 static dm_scan_info_t *appwifiscan_result = NULL;
 static dm_scan_info_t *wifi_iterator;

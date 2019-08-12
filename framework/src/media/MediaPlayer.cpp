@@ -21,8 +21,10 @@
 #include "PlayerWorker.h"
 
 namespace media {
-MediaPlayer::MediaPlayer() : mPMpImpl(new MediaPlayerImpl())
+MediaPlayer::MediaPlayer() : mPMpImpl(new MediaPlayerImpl(*this))
 {
+	mId = (uint64_t)this << 32;
+	mId = mId | (uint64_t)mPMpImpl.get();
 }
 
 player_result_t MediaPlayer::create()
@@ -38,6 +40,11 @@ player_result_t MediaPlayer::destroy()
 player_result_t MediaPlayer::prepare()
 {
 	return mPMpImpl->prepare();
+}
+
+player_result_t MediaPlayer::prepareAsync()
+{
+	return mPMpImpl->prepareAsync();
 }
 
 player_result_t MediaPlayer::unprepare()
@@ -60,14 +67,24 @@ player_result_t MediaPlayer::pause()
 	return mPMpImpl->pause();
 }
 
-int MediaPlayer::getVolume()
+player_result_t MediaPlayer::getVolume(uint8_t *vol)
 {
-	return mPMpImpl->getVolume();
+	return mPMpImpl->getVolume(vol);
 }
 
-player_result_t MediaPlayer::setVolume(int vol)
+player_result_t MediaPlayer::getMaxVolume(uint8_t *vol)
+{
+	return mPMpImpl->getMaxVolume(vol);
+}
+
+player_result_t MediaPlayer::setVolume(uint8_t vol)
 {
 	return mPMpImpl->setVolume(vol);
+}
+
+player_result_t MediaPlayer::setStreamInfo(std::shared_ptr<stream_info_t> stream_info)
+{
+	return mPMpImpl->setStreamInfo(stream_info);
 }
 
 player_result_t MediaPlayer::setDataSource(std::unique_ptr<stream::InputDataSource> source)
@@ -75,14 +92,19 @@ player_result_t MediaPlayer::setDataSource(std::unique_ptr<stream::InputDataSour
 	return mPMpImpl->setDataSource(std::move(source));
 }
 
-void MediaPlayer::setObserver(std::shared_ptr<MediaPlayerObserverInterface> observer)
+player_result_t MediaPlayer::setObserver(std::shared_ptr<MediaPlayerObserverInterface> observer)
 {
-	mPMpImpl->setObserver(observer);
+	return mPMpImpl->setObserver(observer);
 }
 
-player_result_t MediaPlayer::seekTo(int msec)
+bool MediaPlayer::operator==(const MediaPlayer &rhs)
 {
-	return mPMpImpl->seekTo(msec);
+	return this->mId == rhs.mId;
+}
+
+bool MediaPlayer::isPlaying()
+{
+	return mPMpImpl->isPlaying();
 }
 
 MediaPlayer::~MediaPlayer()

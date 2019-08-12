@@ -68,6 +68,7 @@
 #include <net/lwip/inet.h>
 
 #include <sys/select.h>
+#include <sys/uio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -165,28 +166,7 @@ struct lwip_setgetsockopt_data {
 #error "IOV_MAX larger than supported by lwIP"
 #endif /* IOV_MAX */
 
-#define LWIP_HAVE_UIO	1
-#ifdef LWIP_HAVE_UIO
-/* To prevent duplicated definition of iovec */
-#include <uio.h>
-#else
-#if !defined(iovec)
-struct iovec {
-	void *iov_base;
-	size_t iov_len;
-};
-#endif
-#endif /* LWIP_HAVE_UIO */
-
-struct msghdr {
-	void *msg_name;
-	socklen_t msg_namelen;
-	struct iovec *msg_iov;
-	int msg_iovlen;
-	void *msg_control;
-	socklen_t msg_controllen;
-	int msg_flags;
-};
+struct msghdr;
 
 /* struct msghdr->msg_flags bit field values */
 #define MSG_TRUNC   0x04
@@ -292,7 +272,9 @@ struct linger {
 
 #define IPPROTO_IP      0
 #define IPPROTO_ICMP    1
+#define IPPROTO_IGMP    2
 #define IPPROTO_TCP     6
+
 #define IPPROTO_UDP     17
 #define IPPROTO_IPV6    41
 #define IPPROTO_ICMPV6  58
@@ -406,7 +388,7 @@ typedef struct ip_mreq {
 #define IPTOS_PREC_ROUTINE              0x00
 
 /*
- * Commands for ioctlsocket(),  taken from the BSD file fcntl.h.
+ * Commands for ioctl(),  taken from the BSD file fcntl.h.
  * lwip_ioctl only supports FIONREAD and FIONBIO, for now
  *
  * Ioctl's have the command encoded in the lower word,
@@ -430,9 +412,6 @@ typedef struct ip_mreq {
 #define _IOW(x, y, t)     (IOC_IN | (((long)sizeof(t) & IOCPARM_MASK) << 16) | ((x) << 8) | (y))
 #endif							/* !defined(FIONREAD) || !defined(FIONBIO) */
 
-#ifndef FIONREAD
-#define FIONREAD    _IOR('f', 127, unsigned long)	/* get # bytes to read */
-#endif
 #ifndef FIONBIO
 #define FIONBIO     _IOW('f', 126, unsigned long)	/* set/clear non-blocking i/o */
 #endif
@@ -521,6 +500,7 @@ int lwip_select(int maxfdp1, fd_set * readset, fd_set * writeset, fd_set * excep
 int lwip_ioctl(int s, long cmd, void *argp);
 int lwip_fcntl(int s, int cmd, int val);
 
+int lwip_poll(int fd, struct pollfd *fds, bool setup);
 #ifdef __cplusplus
 }
 #endif

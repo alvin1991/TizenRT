@@ -57,6 +57,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <libgen.h>
@@ -68,12 +69,6 @@
 #endif
 #ifndef CONFIG_DISABLE_MOUNTPOINT
 #include <sys/mount.h>
-#ifdef CONFIG_FS_SMARTFS
-#include <tinyara/fs/mksmartfs.h>
-#endif
-#ifdef CONFIG_RAMDISK
-#include <tinyara/fs/ramdisk.h>
-#endif
 #endif
 
 /****************************************************************************
@@ -89,22 +84,27 @@
 #define FSCMD_BUFFER_LEN      256
 #endif
 
+#define FSCMD_ECHO_USAGE "Usage:  echo [OPTIONS] [input_text] [> or >>] > [target_file_path]\n\tOPTIONS: '-n' - do not output the trailing newline.\n\t\t '--help' - displays usage.\n"
+#define FSCMD_CAT_USAGE "Usage:  cat [OPTIONS] [source_file_path] [> or >>] [target_file_path]\n\tOPTIONS: '--help' - displays usage.\n"
+
 /** Wrapper to prevent remove information by users **/
 #define FSCMD_OUTPUT(...) printf(__VA_ARGS__)
 
 /** Define Error String **/
-#define TOO_MANY_ARGS   "%s Too many Arguments\n"
-#define INVALID_ARGS    "%s Invalid Arguments\n"
-#define MISSING_ARGS    "%s Missing required argument(s)\n"
+#define TOO_MANY_ARGS   "%s : Too many Arguments\n"
+#define INVALID_ARGS    "%s : Invalid Arguments\n"
+#define MISSING_ARGS    "%s : Missing required argument(s)\n"
 #define CMD_FAILED      "%s : %s failed\n"
 #define OUT_OF_MEMORY   "%s : out of memory\n"
 #define OUT_OF_RANGE    "%s : value out of range\n"
+#define CMD_FAILED_ERRNO  "%s : %s failed: %d\n"
 
 /** Define FS Type **/
 #define NONEFS_TYPE     "None FS"
 #define SMARTFS_TYPE    "smartfs"
 #define PROCFS_TYPE     "procfs"
 #define ROMFS_TYPE      "romfs"
+#define TMPFS_TYPE      "tmpfs"
 
 /****************************************************************************
  * Private Types
@@ -133,6 +133,121 @@ static void fscmd_free(FAR char *path)
 		free(path);
 	}
 }
+
+#ifndef CONFIG_DISABLE_ENVIRON
+/****************************************************************************
+ * Name: tash_echo
+ *
+ * Description:
+ *   Display input text or Redirects to a target file
+ *
+ * Usage:
+ *   echo [OPTIONS] [input_text] [> or >>] [target_file_path]
+ *   OPTIONS: '-n' - do not output the trailing newline.
+ *            '--help' - displays usage.
+ ****************************************************************************/
+static int tash_echo(int argc, char **args)
+{
+	char *dest_fullpath = NULL;
+	redirection_t direction = { FSCMD_NONE, argc };
+	char fscmd_buffer[FSCMD_BUFFER_LEN];
+	int i;
+	int fd = 1;
+	int flags;
+	int len = 0;
+	int arg_len = 0;
+	int n_opt = 1;
+	int ret = ERROR;
+
+	if (!strncmp(args[1], "--help", strlen("--help") + 1)) {
+		FSCMD_OUTPUT(FSCMD_ECHO_USAGE);
+		return OK;
+	}
+
+	if (!strncmp(args[1], "-n", 2)) {
+		n_opt = 2;
+	}
+
+	for (i = n_opt; i < argc; i++) {
+		if (strcmp(args[i], ">") == 0) {
+			direction.mode = FSCMD_TRUNCATE;
+			direction.index = i;
+			break;
+		} else if (strcmp(args[i], ">>") == 0) {
+			direction.mode = FSCMD_APPEND;
+			direction.index = i;
+			break;
+		}
+	}
+
+	if (direction.mode != FSCMD_NONE && direction.index == argc - 2) {
+		/* Redirection case */
+		flags = O_WRONLY | O_CREAT;
+		if (direction.mode == FSCMD_TRUNCATE) {
+			flags |= O_TRUNC;
+		} else {
+			flags |= O_APPEND;
+		}
+
+		/* copy contents to target file
+		 * echo <input_text> <redirection> <filepath> */
+		dest_fullpath = get_fullpath(args[argc - 1]);
+		if (!dest_fullpath) {
+			FSCMD_OUTPUT(OUT_OF_MEMORY, args[argc - 1]);
+			return ret;
+		}
+
+		fd = open(dest_fullpath, flags);
+		if (fd < 0) {
+			FSCMD_OUTPUT(CMD_FAILED_ERRNO, "echo", "open", errno);
+			goto error;
+		}
+	 } else if (direction.mode != FSCMD_NONE && direction.index != argc - 2) {
+		FSCMD_OUTPUT(INVALID_ARGS FSCMD_ECHO_USAGE, args[0]);
+		return ret;
+	 }
+
+	for (i = n_opt; i < direction.index; i++) {
+		if (i != n_opt) {
+			memcpy(fscmd_buffer + len, " ", 1);
+			len += 1;
+		}
+
+		arg_len = strlen(args[i]);
+		if ((len + arg_len) > FSCMD_BUFFER_LEN) {
+			FSCMD_OUTPUT("%s : Too long input text\n", args[0]);
+			goto error_with_close;
+		}
+		memcpy(fscmd_buffer + len, args[i], arg_len);
+		len += arg_len;
+	}
+
+	if (1 == n_opt) {
+		if (len >= FSCMD_BUFFER_LEN) {
+			FSCMD_OUTPUT("%s : Too long input text\n", args[0]);
+			goto error_with_close;
+		}
+		memcpy(fscmd_buffer + len, "\n", 1);
+		len += 1;
+	}
+
+	if (write(fd, fscmd_buffer, len) < 0) {
+		FSCMD_OUTPUT(CMD_FAILED_ERRNO, args[0], "write", errno);
+		goto error_with_close;
+	}
+
+	ret = OK;
+
+error_with_close:
+	if (fd > 2) {
+		close(fd);
+	}
+error:
+	fscmd_free(dest_fullpath);
+	return ret;
+}
+#endif
+
 #ifndef CONFIG_DISABLE_ENVIRON
 /****************************************************************************
  * Name: tash_cat
@@ -141,7 +256,8 @@ static void fscmd_free(FAR char *path)
  *   copies and concatenates file or redirect file to another file
  *
  * Usage:
- *   cat < > or >> > [source path] [contents or target path]
+ *   cat [OPTIONS] [source_file_path] [> or >>] [target_file_path]
+ *   OPTIONS: '--help' - display the usage.
  ****************************************************************************/
 static int tash_cat(int argc, char **args)
 {
@@ -152,7 +268,6 @@ static int tash_cat(int argc, char **args)
 	int fd;
 	int destfd;
 	int i;
-	int len;
 	int flags;
 	ssize_t ret = 0;
 
@@ -171,20 +286,23 @@ static int tash_cat(int argc, char **args)
 	}
 
 	if (argc < 2) {
-		FSCMD_OUTPUT(MISSING_ARGS " : [> or >>] [file] [contents]\n", args[0]);
-
-		return 0;
+		FSCMD_OUTPUT(MISSING_ARGS FSCMD_CAT_USAGE, args[0]);
+		return ERROR;
 	} else if (argc == 2) {
-		/* Below is basic case, cat <filepath> */
+		if (!strncmp(args[1], "--help", strlen("--help") + 1)) {
+			FSCMD_OUTPUT(FSCMD_CAT_USAGE);
+			return OK;
+		}
+		/* Basic case, cat <filepath> */
 		if (direction.mode != FSCMD_NONE) {
-			FSCMD_OUTPUT(INVALID_ARGS " : [> or >>] [file] [contents]\n", args[0]);
-			return 0;
+			FSCMD_OUTPUT(INVALID_ARGS FSCMD_CAT_USAGE, args[0]);
+			return ERROR;
 		}
 
 		src_fullpath = get_fullpath(args[1]);
 		if (!src_fullpath) {
 			FSCMD_OUTPUT(OUT_OF_MEMORY, args[1]);
-			return 0;
+			return ERROR;
 		}
 
 		fd = open(src_fullpath, O_RDONLY);
@@ -212,40 +330,18 @@ static int tash_cat(int argc, char **args)
 			flags |= O_APPEND;
 		}
 
-		if (direction.index == 1) {
-			/* copy input contents to target file
-			 * cat <redirection> <filepath> <contents> */
-			src_fullpath = get_fullpath(args[2]);
-			if (!src_fullpath) {
-				FSCMD_OUTPUT(OUT_OF_MEMORY, args[2]);
-				return 0;
-			}
-
-			fd = open(src_fullpath, flags);
-			if (fd < 0) {
-				FSCMD_OUTPUT(CMD_FAILED, "open", src_fullpath);
-				goto error;
-			}
-			len = strlen(args[3]);
-			memcpy(fscmd_buffer, args[3], len);
-			if (write(fd, fscmd_buffer, len) < 0) {
-				FSCMD_OUTPUT(CMD_FAILED, "write", src_fullpath);
-				close(fd);
-				goto error;
-			}
-			close(fd);
-		} else if (direction.index == 2) {
+		if (direction.index == 2) {
 			/* copy contents from source file to target file
 			 * cat <source filepath> <redirection> <target filepath> */
 			if (strcmp(args[1], args[3]) == 0) {
 				FSCMD_OUTPUT(INVALID_ARGS "Same File name", args[1]);
-				return 0;
+				return ERROR;
 			}
 
 			src_fullpath = get_fullpath(args[1]);
 			if (!src_fullpath) {
 				FSCMD_OUTPUT(OUT_OF_MEMORY, args[1]);
-				return 0;
+				return ERROR;
 			}
 
 			fd = open(src_fullpath, O_RDONLY);
@@ -279,20 +375,18 @@ static int tash_cat(int argc, char **args)
 			close(destfd);
 		} else {
 			FSCMD_OUTPUT(INVALID_ARGS " : [> or >>] [file] [contents]\n", args[0]);
-			return 0;
+			return ERROR;
 		}
 	} else {
 		/* Wrong case */
-		FSCMD_OUTPUT(INVALID_ARGS " : [> or >>] [file] [contents]\n", args[0]);
-
-		return 0;
+		FSCMD_OUTPUT(INVALID_ARGS FSCMD_CAT_USAGE, args[0]);
+		return ERROR;
 	}
-
+	return OK;
 error:
 	fscmd_free(src_fullpath);
 	fscmd_free(dest_fullpath);
-
-	return 0;
+	return ERROR;
 }
 #endif
 #ifndef CONFIG_DISABLE_ENVIRON
@@ -655,188 +749,8 @@ static int tash_mkdir(int argc, char **args)
 	return ret;
 }
 #endif
+
 #ifndef CONFIG_DISABLE_MOUNTPOINT
-#ifdef CONFIG_RAMDISK
-/****************************************************************************
- * Name: tash_mkrd
- *
- * Description:
- *   Make RAM or ROM disk if m is not specified, default is '0' and if s is
- *   not specified, default is 512bytes
- *
- * Usage:
- *   mkrd [-m <minor>] [-s <sector-size>] <nsectors> or mkrd <nsectors>
- ****************************************************************************/
-static int tash_mkrd(int argc, char **args)
-{
-	const char *fmt;
-	uint8_t *buffer;
-	uint32_t nsectors;
-	bool badarg = false;
-	int sectsize = 512;
-	int minor = 0;
-	int ret;
-
-	/* Get the mkrd options */
-
-	int option;
-	optind = -1;
-	while ((option = getopt(argc, args, ":m:s:")) != ERROR) {
-		switch (option) {
-		case 'm':
-			minor = atoi(optarg);
-			if (minor < 0 || minor > 255) {
-				FSCMD_OUTPUT(OUT_OF_RANGE, args[0]);
-				badarg = true;
-			}
-			break;
-
-		case 's':
-			sectsize = atoi(optarg);
-			if (minor < 0 || minor > 16384) {
-				FSCMD_OUTPUT(OUT_OF_RANGE, args[0]);
-				badarg = true;
-			}
-			break;
-
-		case ':':
-			FSCMD_OUTPUT(MISSING_ARGS, args[0]);
-			badarg = true;
-			break;
-
-		case '?':
-		default:
-			FSCMD_OUTPUT(INVALID_ARGS, args[0]);
-			badarg = true;
-			break;
-		}
-	}
-
-	/*
-	 * If a bad argument was encountered,
-	 * then return without processing the command
-	 */
-
-	if (badarg) {
-		return ERROR;
-	}
-
-	/* There should be exactly one parameter left on the command-line */
-
-	if (optind == argc - 1) {
-		nsectors = (uint32_t)atoi(args[optind]);
-	} else if (optind >= argc) {
-		fmt = TOO_MANY_ARGS;
-		goto errout_with_fmt;
-	} else {
-		fmt = MISSING_ARGS;
-		goto errout_with_fmt;
-	}
-
-	if (nsectors < 1) {
-		FSCMD_OUTPUT(INVALID_ARGS, args[0]);
-		return ERROR;
-	}
-	/* Allocate the memory backing up the ramdisk */
-	buffer = (uint8_t *)malloc(sectsize * nsectors);
-	if (!buffer) {
-		fmt = OUT_OF_MEMORY;
-		goto errout_with_fmt;
-	}
-#ifdef CONFIG_DEBUG_VERBOSE
-	memset(buffer, 0, sectsize * nsectors);
-#endif
-	dbg("RAMDISK at %p\n", buffer);
-
-	/* Then register the ramdisk */
-
-	ret = ramdisk_register(minor, buffer, nsectors, sectsize, RDFLAG_WRENABLED | RDFLAG_FUNLINK);
-	if (ret < 0) {
-		FSCMD_OUTPUT(CMD_FAILED, args[0], "ramdisk_register");
-		free(buffer);
-		return ERROR;
-	}
-
-	return ret;
-
-errout_with_fmt:
-	FSCMD_OUTPUT(fmt, args[0]);
-
-	return ERROR;
-}
-#endif							/* END OF CONFIG_RAMDISK */
-
-#ifdef CONFIG_FS_SMARTFS
-/****************************************************************************
- * Name: tash_mksmartfs
- *
- * Description:
- *   Make SmartFS file system on the specified block device.
- *   Put -f option will LLFORMAT smartfs by force.
- *
- * Usage:
- *   mksmartfs <source directory> [-f] <target directory>
- ****************************************************************************/
-static int tash_mksmartfs(int argc, char **args)
-{
-	const char *src;
-	const char *fmt;
-	bool force = false;
-	int option;
-#ifdef CONFIG_SMARTFS_MULTI_ROOT_DIRS
-	int nrootdirs = 1;
-#endif
-	optind = -1;
-	while ((option = getopt(argc, args, "f")) != ERROR) {
-		switch (option) {
-		case 'f':
-			force = true;
-			break;
-		case '?':
-		default:
-			fmt = INVALID_ARGS;
-			goto errout_with_fmt;
-		}
-	}
-
-	if (optind >= argc) {
-		fmt = MISSING_ARGS;
-		goto errout_with_fmt;
-	}
-
-	/* Set path for registered block driver */
-	src = args[optind];
-
-	if (optind + 1 < argc) {
-#ifdef CONFIG_SMARTFS_MULTI_ROOT_DIRS
-		nrootdirs = atoi(args[optind++]);
-	}
-	if (nrootdirs > 8 || nrootdirs < 1) {
-		FSCMD_OUTPUT(INVALID_ARGS "Invalid number of root directories specified\n", args[0]);
-		return ERROR;
-	}
-	if (optind + 1 < argc) {
-#endif
-		fmt = TOO_MANY_ARGS;
-		goto errout_with_fmt;
-	}
-
-#ifdef CONFIG_SMARTFS_MULTI_ROOT_DIRS
-	return mksmartfs(src, nrootdirs, force);
-#else
-	return mksmartfs(src, force);
-#endif
-
-errout_with_fmt:
-#ifdef CONFIG_SMARTFS_MULTI_ROOT_DIRS
-	FSCMD_OUTPUT(fmt, " : [-f] <source> [<nrootdir>]\n", args[0]);
-#else
-	FSCMD_OUTPUT(fmt, " : [-f] <source>\n", args[0]);
-#endif
-	return ERROR;
-}
-#endif							/* END OF CONFIG FS_SMARTFS */
-
 #ifndef CONFIG_DISABLE_ENVIRON
 static int mount_handler(FAR const char *mountpoint, FAR struct statfs *statbuf, FAR void *arg)
 {
@@ -853,6 +767,9 @@ static int mount_handler(FAR const char *mountpoint, FAR struct statfs *statbuf,
 	case PROCFS_MAGIC:
 		fstype = PROCFS_TYPE;
 		break;
+	case TMPFS_MAGIC:
+		fstype = TMPFS_TYPE;
+		break;
 	default:
 		fstype = NONEFS_TYPE;
 		break;
@@ -862,9 +779,73 @@ static int mount_handler(FAR const char *mountpoint, FAR struct statfs *statbuf,
 	return OK;
 }
 
-static int mount_show(foreach_mountpoint_t handler, FAR void *arg)
+/****************************************************************************
+ * Name: search_mountpoints
+ *
+ * Description:
+ *    Search all mount points.
+ *
+ ****************************************************************************/
+static int search_mountpoints(const char *dirpath, foreach_mountpoint_t handler)
 {
-	return foreach_mountpoint(handler, arg);
+	int ret = OK;
+	struct statfs prev_buf = {0, };
+	DIR *dirp = opendir(dirpath);		/* Open the directory */
+	if (!dirp) {
+		/* Failed to open the directory */
+		FSCMD_OUTPUT("\t Failed to open directory: %s\n", dirpath);
+		return ERROR;
+	}
+
+	/* Read each directory entry */
+	for (;;) {
+		struct statfs buf;
+		char *fullpath;
+		struct dirent *entryp = readdir(dirp);
+		if (!entryp) {
+			/* Finished with this directory */
+			break;
+		}
+
+		/* Call statfs with the given file path */
+		fullpath = get_dirpath(dirpath, entryp->d_name);
+		ret = statfs(fullpath, &buf);
+		if (ret != OK) {
+			FSCMD_OUTPUT("statfs is failed at %s\n", fullpath);
+			fscmd_free(fullpath);
+			closedir(dirp);
+			return ERROR;
+		}
+
+		if ((buf.f_type == SMARTFS_MAGIC) || (buf.f_type == ROMFS_MAGIC) || (buf.f_type == PROCFS_MAGIC) || (buf.f_type == TMPFS_MAGIC)) {
+			if (prev_buf.f_type == buf.f_type) {	/* In this case, inode is not changed. */
+				continue;
+			}
+			prev_buf.f_type = buf.f_type;
+
+			ret = handler(fullpath, &buf, NULL);
+			if (ret != OK) {
+				FSCMD_OUTPUT("handler is failed at %d\n", fullpath);
+				fscmd_free(fullpath);
+				closedir(dirp);
+				return ERROR;
+			}
+		} else {
+			if (DIRENT_ISDIRECTORY(entryp->d_type) && !ls_specialdir(entryp->d_name)) {
+				search_mountpoints(fullpath, handler);
+			}
+		}
+
+		fscmd_free(fullpath);
+	}
+	closedir(dirp);
+
+	return ret;
+}
+
+int mount_show(void)
+{
+	return search_mountpoints(CONFIG_LIB_HOMEDIR, mount_handler);
 }
 
 /****************************************************************************
@@ -888,7 +869,7 @@ static int tash_mount(int argc, char **args)
 	bool badarg = false;
 
 	if (argc < 2) {
-		return mount_show(mount_handler, args[1]);
+		return mount_show();
 	}
 
 	optind = -1;
@@ -1012,6 +993,68 @@ static int tash_pwd(int argc, char **args)
 }
 #endif
 #ifndef CONFIG_DISABLE_ENVIRON
+static int delete_entry(const char *fullpath)
+{
+	int ret = OK;
+	struct stat st;
+
+	if (!fullpath) {
+		FSCMD_OUTPUT("Path is null\n");
+		return ERROR;
+	}
+
+	if (stat(fullpath, &st) < 0) {
+		FSCMD_OUTPUT("stat failed with %s\n", fullpath);
+		return ERROR;
+	}
+
+	if (!S_ISDIR(st.st_mode)) {
+		ret = unlink(fullpath);
+		if (ret != OK) {
+			FSCMD_OUTPUT("unlink() failed with %s\n", fullpath);
+			return ret;
+		}
+	} else {
+		/* Iterate the directory contents */
+		DIR *dirp = opendir(fullpath);		/* Open the directory */
+		if (!dirp) {
+			/* Failed to open the directory */
+			FSCMD_OUTPUT("\t Failed to open directory: %s\n", fullpath);
+			return ERROR;
+		}
+
+		/* Read each directory entry */
+		for (;;) {
+			char *entrypath = NULL;
+			struct dirent *entryp = readdir(dirp);
+			if (!entryp) {
+				/* Finished with this directory */
+				break;
+			}
+
+			/* Call delete_entey recursively */
+			entrypath = get_dirpath(fullpath, entryp->d_name);
+			ret = delete_entry(entrypath);
+			fscmd_free(entrypath);
+			if (ret != OK) {
+				FSCMD_OUTPUT("delete_entry() failed with %s\n", entrypath);
+				return ret;
+			}
+		}
+
+		ret = rmdir(fullpath);
+		if (ret != OK) {
+			FSCMD_OUTPUT("rmdir failed with %s\n", fullpath);
+			return ret;
+		}
+
+		closedir(dirp);
+	}
+	FSCMD_OUTPUT("%s deleted\n", fullpath);
+
+	return ret;
+}
+
 /****************************************************************************
  * Name: tash_rm
  *
@@ -1024,14 +1067,26 @@ static int tash_pwd(int argc, char **args)
 static int tash_rm(int argc, char **args)
 {
 	char *fullpath;
-	int ret = ERROR;
+	int ret = OK;
 
-	fullpath = get_fullpath(args[1]);
-	if (fullpath) {
-		ret = unlink(fullpath);
-		if (ret < 0) {
-			FSCMD_OUTPUT(CMD_FAILED, args[0], "unlink");
+	if (args[2]) {
+		fullpath = get_fullpath(args[2]);
+		if (strncmp(args[1], "-r", strlen(args[1])) == 0) {
+			ret = delete_entry(fullpath);
+		} else {
+			FSCMD_OUTPUT("Usage: rm [-r] [FILE/DIR]\n");
 		}
+	} else {
+		fullpath = get_fullpath(args[1]);
+		ret = unlink(fullpath);
+		if (ret != OK) {
+			FSCMD_OUTPUT(CMD_FAILED, args[0], "unlink");
+			return ret;
+		}
+		FSCMD_OUTPUT("%s deleted\n", fullpath);
+	}
+
+	if (fullpath) {
 		fscmd_free(fullpath);
 	}
 
@@ -1205,11 +1260,11 @@ static int tash_df(int argc, char **args)
 {
 	if (argc > 1 && strcmp(args[1], "-h") == 0) {
 		printf("Filesystem    Size      Used  Available Mounted on\n");
-		return foreach_mountpoint(df_man_readable_handler, NULL);
+		return search_mountpoints(CONFIG_LIB_HOMEDIR, df_man_readable_handler);
 	} else {
 		printf("  Block  Number\n");
 		printf("  Size   Blocks     Used Available Mounted on\n");
-		return foreach_mountpoint(df_handler, NULL);
+		return search_mountpoints(CONFIG_LIB_HOMEDIR, df_handler);
 	}
 
 	return 0;
@@ -1224,18 +1279,15 @@ const static tash_cmdlist_t fs_utilcmds[] = {
 	{"cd",        tash_cd,        TASH_EXECMD_SYNC},
 #endif
 #ifndef CONFIG_DISABLE_ENVIRON
+	{"echo",      tash_echo,      TASH_EXECMD_SYNC},
+#endif
+#ifndef CONFIG_DISABLE_ENVIRON
 	{"ls",        tash_ls,        TASH_EXECMD_SYNC},
 #endif
 #ifndef CONFIG_DISABLE_ENVIRON
 	{"mkdir",     tash_mkdir,     TASH_EXECMD_SYNC},
 #endif
 #ifndef CONFIG_DISABLE_MOUNTPOINT
-#ifdef CONFIG_RAMDISK
-	{"mkrd",      tash_mkrd,      TASH_EXECMD_SYNC},
-#endif
-#ifdef CONFIG_FS_SMARTFS
-	{"mksmartfs", tash_mksmartfs, TASH_EXECMD_SYNC},
-#endif
 #ifndef CONFIG_DISABLE_ENVIRON
 	{"mount",     tash_mount,     TASH_EXECMD_SYNC},
 #endif

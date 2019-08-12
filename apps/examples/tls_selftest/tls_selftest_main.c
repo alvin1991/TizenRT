@@ -36,10 +36,12 @@
  *  This file is part of mbed TLS (https://tls.mbed.org)
  */
 
-#include "tinyara/config.h"
+#include <tinyara/config.h>
 
+#include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "mbedtls/config.h"
 #include "mbedtls/entropy.h"
@@ -179,7 +181,7 @@ pthread_addr_t tls_selftest_cb(void *args)
  * Without HW entropy, there is no strong entropy source and
  * it will make failure the selftest.
  */
-#if defined(MBEDTLS_ENTROPY_C) && defined(CONFIG_HW_RNG)
+#if defined(MBEDTLS_ENTROPY_C) && defined(CONFIG_TLS_HW_RNG)
 	DO_TLS_TEST(mbedtls_entropy_self_test, v);
 #endif
 #if defined(MBEDTLS_PKCS5_C)

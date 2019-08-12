@@ -63,7 +63,9 @@
 #include <stdbool.h>
 #include <queue.h>
 #include <sched.h>
-
+#ifdef CONFIG_SCHED_CPULOAD
+#include <tinyara/clock.h>
+#endif
 #include <tinyara/kmalloc.h>
 
 /****************************************************************************
@@ -81,8 +83,6 @@
 #if CONFIG_MAX_TASKS & (CONFIG_MAX_TASKS - 1)
 #error "Max number of tasks(CONFIG_MAX_TASKS) should be power of 2"
 #endif
-#define MAX_TASKS_MASK      (CONFIG_MAX_TASKS-1)
-#define PIDHASH(pid)        ((pid) & MAX_TASKS_MASK)
 
 /* These are macros to access the current CPU and the current task on a CPU.
  * These macros are intended to support a future SMP implementation.
@@ -111,7 +111,7 @@ struct pidhash_s {
 	FAR struct tcb_s *tcb;		/* TCB assigned to this PID */
 	pid_t pid;					/* The full PID value */
 #ifdef CONFIG_SCHED_CPULOAD
-	uint32_t ticks;				/* Number of ticks on this thread */
+	uint32_t ticks[SCHED_NCPULOAD];				/* Number of ticks on this thread */
 #endif
 };
 
@@ -235,14 +235,6 @@ extern struct pidhash_s g_pidhash[CONFIG_MAX_TASKS];
 
 extern const struct tasklist_s g_tasklisttable[NUM_TASK_STATES];
 
-#ifdef CONFIG_SCHED_CPULOAD
-/* This is the total number of clock tick counts.  Essentially the
- * 'denominator' for all CPU load calculations.
- */
-
-extern volatile uint32_t g_cpuload_total;
-#endif
-
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
@@ -272,8 +264,11 @@ void sched_timer_reassess(void);
 #define sched_timer_reassess()
 #endif
 
-#if defined(CONFIG_SCHED_CPULOAD) && !defined(CONFIG_SCHED_CPULOAD_EXTCLK)
+#ifdef CONFIG_SCHED_CPULOAD
+#ifndef CONFIG_SCHED_CPULOAD_EXTCLK
 void weak_function sched_process_cpuload(void);
+#endif
+void sched_clear_cpuload(pid_t pid);
 #endif
 
 bool sched_verifytcb(FAR struct tcb_s *tcb);

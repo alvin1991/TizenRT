@@ -61,34 +61,86 @@
 #include <assert.h>
 
 #include <tinyara/kmalloc.h>
+#include <tinyara/sched.h>
 #include <tinyara/mqueue.h>
 
 #include "inode/inode.h"
 #include "mqueue/mqueue.h"
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Private Type Declarations
- ****************************************************************************/
-
-/****************************************************************************
- * Public Variables
- ****************************************************************************/
-
-/****************************************************************************
- * Private Variables
- ****************************************************************************/
-
-/****************************************************************************
- * Private Functions
- ****************************************************************************/
-
-/****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: mq_close_group
+ *
+ * Description:
+ *   This function is used to indicate that all threads in the group are
+ *   finished with the specified message queue mqdes.  The mq_close_group()
+ *   deallocates any system resources allocated by the system for use by
+ *   this task for its message queue.
+ *
+ * Parameters:
+ *   mqdes - Message queue descriptor.
+ *   group - Group that has the open descriptor.
+ *
+ * Return Value:
+ *   0 (OK) if the message queue is closed successfully,
+ *   otherwise, -1 (ERROR).
+ *
+ ****************************************************************************/
+
+int mq_close_group(mqd_t mqdes, FAR struct task_group_s *group)
+{
+	int ret = OK;
+	FAR struct mqueue_inode_s *msgq;
+	FAR struct inode *inode;
+	mqd_t mqdes_ptr;
+
+	DEBUGASSERT(mqdes != NULL && group != NULL);
+
+	/* Verify the inputs */
+
+	if (mqdes) {
+		sched_lock();
+
+		/* Check that mqdes is in one's group */
+		mqdes_ptr = (mqd_t)sq_peek(&group->tg_msgdesq);
+		while (mqdes_ptr) {
+			if (mqdes_ptr == mqdes) {
+				break;
+			}
+			mqdes_ptr = (mqd_t)sq_next(mqdes_ptr);
+		}
+
+		/* If there is no mqdes in one's group, skip to desclose and inode release. */
+		if (mqdes_ptr != NULL) {
+
+			/* Find the message queue associated with the message descriptor */
+
+			msgq = mqdes->msgq;
+			DEBUGASSERT(msgq && msgq->inode);
+
+			/* Close/free the message descriptor */
+
+			mq_desclose_group(mqdes, group);
+
+			/* Get the inode from the message queue structure */
+
+			inode = msgq->inode;
+			DEBUGASSERT(inode->u.i_mqueue == msgq);
+
+			/* Decrement the reference count on the inode, possibly freeing it */
+
+			mq_inode_release(inode);
+		} else {
+			ret = ERROR;
+		}
+		sched_unlock();
+	}
+
+	return ret;
+}
 
 /****************************************************************************
  * Name: mq_close
@@ -120,39 +172,25 @@
 
 int mq_close(mqd_t mqdes)
 {
-	FAR struct mqueue_inode_s *msgq;
-	FAR struct inode *inode;
+	FAR struct tcb_s *rtcb;
+	int ret;
 
-	/* Verify the inputs */
+	rtcb = (FAR struct tcb_s *)sched_self();
+	DEBUGASSERT(mqdes != NULL && rtcb != NULL && rtcb->group != NULL);
 
-	if (mqdes) {
-		sched_lock();
+	/* Lock the scheduler to prevent any asynchrounous task delete operation
+	* (unlikely).
+	*/
 
-		/* Find the message queue associated with the message descriptor */
+	sched_lock();
+	ret = mq_close_group(mqdes, rtcb->group);
+	sched_unlock();
 
-		msgq = mqdes->msgq;
-		DEBUGASSERT(msgq && msgq->inode);
-
-		/* Close/free the message descriptor */
-
-		mq_desclose(mqdes);
-
-		/* Get the inode from the message queue structure */
-
-		inode = msgq->inode;
-		DEBUGASSERT(inode->u.i_mqueue == msgq);
-
-		/* Decrement the reference count on the inode, possibly freeing it */
-
-		mq_inode_release(inode);
-		sched_unlock();
-	}
-
-	return OK;
+	return ret;
 }
 
 /****************************************************************************
- * Name: mq_close
+ * Name: mq_inode_release
  *
  * Description:
  *   Release a reference count on a message queue inode.

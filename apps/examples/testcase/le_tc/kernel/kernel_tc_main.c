@@ -22,8 +22,20 @@
 
 #include <tinyara/config.h>
 #include <stdio.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <tinyara/testcase_drv.h>
+#include <tinyara/fs/fs.h>
+#include <tinyara/fs/ioctl.h>
 #include "tc_common.h"
 #include "tc_internal.h"
+
+static int g_tc_fd;
+
+int tc_get_drvfd(void)
+{
+	return g_tc_fd;
+}
 
 #ifdef CONFIG_BUILD_KERNEL
 int main(int argc, FAR char *argv[])
@@ -32,6 +44,12 @@ int tc_kernel_main(int argc, char *argv[])
 #endif
 {
 	if (tc_handler(TC_START, "Kernel TC") == ERROR) {
+		return ERROR;
+	}
+
+	g_tc_fd = open(KERNEL_TC_DRVPATH, O_WRONLY);
+	if (g_tc_fd < 0) {
+		tckndbg("Failed to open testcase driver %d\n", errno);
 		return ERROR;
 	}
 
@@ -66,6 +84,10 @@ int tc_kernel_main(int argc, char *argv[])
 	libc_fixedmath_main();
 #endif
 
+#ifdef CONFIG_TC_KERNEL_LIBC_INTTYPES
+	libc_inttypes_main();
+#endif
+
 #ifdef CONFIG_TC_KERNEL_LIBC_LIBGEN
 	libc_libgen_main();
 #endif
@@ -79,10 +101,6 @@ int tc_kernel_main(int argc, char *argv[])
 #error CONFIG_DEBUG, CONFIG_DEBUG_ERROR and CONFIG_DEBUG_VERBOSE are needed for testing LIBC_MISC TC
 #endif
 	libc_misc_main();
-#endif
-
-#ifdef CONFIG_TC_KERNEL_LIBC_MQUEUE
-	libc_mqueue_main();
 #endif
 
 #ifdef CONFIG_TC_KERNEL_LIBC_PTHREAD
@@ -103,10 +121,6 @@ int tc_kernel_main(int argc, char *argv[])
 
 #ifdef CONFIG_TC_KERNEL_LIBC_SIGNAL
 	libc_signal_main();
-#endif
-
-#ifdef CONFIG_TC_KERNEL_LIBC_SPAWN
-	libc_spawn_main();
 #endif
 
 #ifdef CONFIG_TC_KERNEL_LIBC_STDIO
@@ -180,6 +194,10 @@ int tc_kernel_main(int argc, char *argv[])
 	wqueue_main();
 #endif
 
+#ifdef CONFIG_TC_KERNEL_MEMORY_SAFETY
+	memory_safety_main();
+#endif
+
 #ifdef CONFIG_ITC_KERNEL_ENVIRON
 	itc_environ_main();
 #endif
@@ -204,13 +222,12 @@ int tc_kernel_main(int argc, char *argv[])
 	itc_timer_main();
 #endif
 
-#ifdef CONFIG_ITC_KERNEL_LIBC_SPAWN
-	itc_libc_spawn_main();
-#endif
-
 #ifdef CONFIG_ITC_KERNEL_PTHREAD
 	itc_pthread_main();
 #endif
+
+	close(g_tc_fd);
+	g_tc_fd = -1;
 
 	(void)tc_handler(TC_END, "Kernel TC");
 

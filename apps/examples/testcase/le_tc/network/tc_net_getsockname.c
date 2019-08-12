@@ -142,7 +142,7 @@ static void tc_net_getsockname_udp_p(void)
 	int len = sizeof(struct sockaddr);
 	struct sockaddr foo;
 
-	sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
 	if (sock < 0) {
 		printf("socket creation error (%s) line:%d\n", __FUNCTION__, __LINE__);
 		return;
@@ -167,7 +167,7 @@ static void tc_net_getsockname_icmp_p(void)
 	int len = sizeof(struct sockaddr);
 	struct sockaddr foo;
 
-	sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 	if (sock < 0) {
 		printf("socket creation error (%s) line:%d\n", __FUNCTION__, __LINE__);
 		return;
@@ -212,8 +212,5 @@ int net_getsockname_main(void)
 	tc_net_getsockname_udp_p();
 	tc_net_getsockname_icmp_p();
 	tc_net_getsockname_close_n();
-#ifdef AF_UNIX
-	tc_net_getsockname_unix_p();
-#endif
 	return 0;
 }

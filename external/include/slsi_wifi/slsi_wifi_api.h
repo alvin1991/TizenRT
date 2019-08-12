@@ -40,7 +40,13 @@ extern "C"
 #endif
 
 /* interface name to use */
+#ifdef CONFIG_WIFI_MANAGER
+#define CTRL_IFNAME	CONFIG_WIFIMGR_STA_IFNAME
+#else
 #define CTRL_IFNAME "wl1"
+#endif
+
+
 
 #ifndef BIT
 #define BIT(x) (1 << (x))
@@ -414,6 +420,15 @@ int8_t WiFiSetCountryCode(const char *country_code);
  *   it will look into configuration file and try to connect known network
  */
 int8_t WiFiSaveConfig(void);
+
+/**
+ * Request to set the autoconnect of external driver.
+ *	@check		1 for enabling and 0 for disabling external autoconnect
+ * Return: Completed successfully or failed
+ *
+ *   Will set external autoconnect enabled or disabled
+ */
+int8_t WiFiSetAutoconnect(uint8_t check);
 
 #undef EXTERN
 #ifdef  __cplusplus

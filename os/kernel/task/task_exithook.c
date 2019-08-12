@@ -70,25 +70,10 @@
 #include "signal/signal.h"
 #include "task/task.h"
 
-/****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-/****************************************************************************
- * Private Type Declarations
- ****************************************************************************/
-
-/****************************************************************************
- * Global Variables
- ****************************************************************************/
-
-/****************************************************************************
- * Private Variables
- ****************************************************************************/
-
-/****************************************************************************
- * Private Function Prototypes
- ****************************************************************************/
+#ifdef CONFIG_TASK_MANAGER
+#include <task_manager/task_manager.h>
+#include <tinyara/task_manager_drv.h>
+#endif
 
 /****************************************************************************
  * Private Functions
@@ -103,9 +88,10 @@
  ****************************************************************************/
 
 #if defined(CONFIG_SCHED_ATEXIT) && !defined(CONFIG_SCHED_ONEXIT)
-static inline void task_atexit(FAR struct tcb_s *tcb)
+inline void task_atexit(FAR struct tcb_s *tcb)
 {
 	FAR struct task_group_s *group = tcb->group;
+	struct atexit_s *patexit;
 
 	/* Make sure that we have not already left the group.  Only the final
 	 * exiting thread in the task group should trigger the atexit()
@@ -113,37 +99,16 @@ static inline void task_atexit(FAR struct tcb_s *tcb)
 	 */
 
 	if (group && group->tg_nmembers == 1) {
-#if defined(CONFIG_SCHED_ATEXIT_MAX) && CONFIG_SCHED_ATEXIT_MAX > 1
-		int index;
 
-		/* Call each atexit function in reverse order of registration atexit()
-		 * functions are registered from lower to higher array indices; they
-		 * must be called in the reverse order of registration when the task
-		 * group exits, i.e., from higher to lower indices.
-		 */
+		/* Call each atexit function in the reverse order of registration */
 
-		for (index = CONFIG_SCHED_ATEXIT_MAX - 1; index >= 0; index--) {
-			if (group->tg_atexitfunc[index]) {
-				/* Call the atexit function */
+		while (!(sq_empty(&(group->tg_atexitfunc)))) {
+			patexit = (struct atexit_s *)sq_remfirst(&(group->tg_atexitfunc));
 
-				(*group->tg_atexitfunc[index])();
+			(*patexit->atexitfunc)();
 
-				/* Nullify the atexit function to prevent its reuse. */
-
-				group->tg_atexitfunc[index] = NULL;
-			}
+			sched_kfree(patexit);
 		}
-#else
-		if (group->tg_atexitfunc) {
-			/* Call the atexit function */
-
-			(*group->tg_atexitfunc)();
-
-			/* Nullify the atexit function to prevent its reuse. */
-
-			group->tg_atexitfunc = NULL;
-		}
-#endif
 	}
 }
 #else
@@ -159,9 +124,10 @@ static inline void task_atexit(FAR struct tcb_s *tcb)
  ****************************************************************************/
 
 #ifdef CONFIG_SCHED_ONEXIT
-static inline void task_onexit(FAR struct tcb_s *tcb, int status)
+inline void task_onexit(FAR struct tcb_s *tcb, int status)
 {
 	FAR struct task_group_s *group = tcb->group;
+	struct onexit_s *ponexit;
 
 	/* Make sure that we have not already left the group.  Only the final
 	 * exiting thread in the task group should trigger the atexit()
@@ -169,37 +135,16 @@ static inline void task_onexit(FAR struct tcb_s *tcb, int status)
 	 */
 
 	if (group && group->tg_nmembers == 1) {
-#if defined(CONFIG_SCHED_ONEXIT_MAX) && CONFIG_SCHED_ONEXIT_MAX > 1
-		int index;
 
-		/* Call each on_exit function in reverse order of registration.
-		 * on_exit() functions are registered from lower to higher array
-		 * indices; they must be called in the reverse order of registration
-		 * when the task group exits, i.e., from higher to lower indices.
-		 */
+		/* Call each on_exit function in the reverse order of registration */
 
-		for (index = CONFIG_SCHED_ONEXIT_MAX - 1; index >= 0; index--) {
-			if (group->tg_onexitfunc[index]) {
-				/* Call the on_exit function */
+		while (!(sq_empty(&(group->tg_onexitfunc)))) {
+			ponexit = (struct onexit_s *)sq_remfirst(&(group->tg_onexitfunc));
 
-				(*group->tg_onexitfunc[index])(status, group->tg_onexitarg[index]);
+			(*ponexit->onexitfunc)(status, ponexit->onexitarg);
 
-				/* Nullify the on_exit function to prevent its reuse. */
-
-				group->tg_onexitfunc[index] = NULL;
-			}
+			sched_kfree(ponexit);
 		}
-#else
-		if (group->tg_onexitfunc) {
-			/* Call the on_exit function */
-
-			(*group->tg_onexitfunc)(status, group->tg_onexitarg);
-
-			/* Nullify the on_exit function to prevent its reuse. */
-
-			group->tg_onexitfunc = NULL;
-		}
-#endif
 	}
 }
 #else
@@ -227,7 +172,6 @@ static inline void task_exitstatus(FAR struct task_group_s *group, int status)
 		/* No.. Find the exit status entry for this task in the parent TCB */
 
 		child = group_findchild(group, getpid());
-		DEBUGASSERT(child);
 		if (child) {
 #ifndef HAVE_GROUP_MEMBERS
 			/* No group members? Save the exit status */
@@ -270,7 +214,6 @@ static inline void task_groupexit(FAR struct task_group_s *group)
 		/* No.. Find the exit status entry for this task in the parent TCB */
 
 		child = group_findchild(group, getpid());
-		DEBUGASSERT(child);
 		if (child) {
 			/* Mark that all members of the child task group has exited */
 
@@ -381,11 +324,12 @@ static inline void task_sigchild(FAR struct tcb_s *ptcb, FAR struct tcb_s *ctcb,
 		task_exitstatus(ptcb->group, status);
 
 #else							/* CONFIG_SCHED_CHILD_STATUS */
+		/* Exit status is not retained.  Just decrement the number of
+		 * children from this parent.
+		 */
 
-		/* Decrement the number of children from this parent */
-
-		DEBUGASSERT(ptcb->nchildren > 0);
-		ptcb->nchildren--;
+		DEBUGASSERT(ptcb->group != NULL && ptcb->group->tg_nchildren > 0);
+		ptcb->group->tg_nchildren--;
 
 #endif							/* CONFIG_SCHED_CHILD_STATUS */
 
@@ -449,13 +393,13 @@ static inline void task_signalparent(FAR struct tcb_s *ctcb, int status)
 	sched_lock();
 
 	/* Get the TCB of the receiving, parent task.  We do this early to
-	 * handle multiple calls to task_signalparent.  ctcb->ppid is set to an
-	 * invalid value below and the following call will fail if we are
-	 * called again.
+	 * handle multiple calls to task_signalparent.  ctcb->group->tg_ppid is
+	 * set to an invalid value below and the following call will fail if we
+	 * are called again.
 	 */
 
-	ptcb = sched_gettcb(ctcb->ppid);
-	if (!ptcb) {
+	ptcb = sched_gettcb(ctcb->group->tg_ppid);
+	if (ptcb == NULL) {
 		/* The parent no longer exists... bail */
 
 		sched_unlock();
@@ -466,9 +410,6 @@ static inline void task_signalparent(FAR struct tcb_s *ctcb, int status)
 
 	task_sigchild(ptcb, ctcb, status);
 
-	/* Forget who our parent was */
-
-	ctcb->ppid = INVALID_PROCESS_ID;
 	sched_unlock();
 #endif
 }
@@ -607,6 +548,10 @@ void task_exithook(FAR struct tcb_s *tcb, int status, bool nonblocking)
 	if ((tcb->flags & TCB_FLAG_EXIT_PROCESSING) != 0) {
 		return;
 	}
+
+#ifdef CONFIG_TASK_MANAGER
+	task_manager_run_exit_cb(tcb->pid);
+#endif
 
 #ifdef CONFIG_CANCELLATION_POINTS
 	/* Mark the task as non-cancelable to avoid additional calls to exit()

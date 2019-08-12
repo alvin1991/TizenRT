@@ -85,6 +85,20 @@ ifeq ($(CONFIG_AUDIO),y)
 TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libaudio$(LIBEXT)
 endif
 
+# Add libraries for se support
+ifeq ($(CONFIG_SE),y)
+TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libse$(LIBEXT)
+endif
+
+# Add libraries for compression support
+TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libcompression$(LIBEXT)
+endif
+
+# Add libraries for crypto support
+ifeq ($(CONFIG_CRYPTO),y)
+TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libcrypto$(LIBEXT)
+endif
+
 # Add libraries for network support
 
 ifeq ($(CONFIG_NET),y)
@@ -112,6 +126,14 @@ TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libdrivers$(LIBEXT)
 endif
 else
 TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libfs$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libdrivers$(LIBEXT)
+endif
+
+ifeq ($(CONFIG_BINFMT_ENABLE),y)
+TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libbinfmt$(LIBEXT)
+endif
+
+ifeq ($(CONFIG_RTK_WLAN),y)
+TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)librtl$(LIBEXT)
 endif
 
 # Add library for wifi driver

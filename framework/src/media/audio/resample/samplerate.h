@@ -34,7 +34,6 @@
 
 #ifndef SAMPLERATE_H
 #define SAMPLERATE_H
-
 #ifdef __cplusplus
 extern "C" {
 #endif	/* __cplusplus */
@@ -87,16 +86,18 @@ struct src_data_s {
 	/* input params */
 	const void *data_in;        // pointer to input sample frames buffer (user buffer)
 	int input_frames;           // number of input frames
-	int channels_num;           // number of channels (1: mono, 2: stereo)
 	int origin_sample_rate;     // original sample rate
 	int origin_sample_width;    // original sample width (bits per sample), only support SAMPLE_WIDTH_16BITS now.
+	int origin_channel_num;     // original channel number (1-mono/2-stereo/3-surround/4-quad/5-5.0/6-5.1)
+	void *data_out;             // pointer to output sample buffer (user buffer)
+	int out_buf_length;         // length of data_out buffer (bytes)
 
 	/* input params - specify desired output */
 	int desired_sample_rate;    // target sample rate
 	int desired_sample_width;   // target sample width (bits per sample), only support SAMPLE_WIDTH_16BITS now.
+	int desired_channel_num;    // target channel number (1-mono/2-stereo)
 
 	/* output */
-	void *data_out;             // pointer to output sample buffer (internal buffer of resampler)
 	int output_frames_gen;      // number of output frames generated
 	int input_frames_used;      // number of frames used from input frames buffer
 	float src_ratio;            // desired_sample_rate/origin_sample_rate;

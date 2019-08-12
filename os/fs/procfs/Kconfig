@@ -16,6 +16,13 @@ config FS_PROCFS
 
 if FS_PROCFS
 
+config FS_AUTOMOUNT_PROCFS
+	bool "Auto mount PROCFS File System"
+	default n
+	---help---
+		This provides an option to enable auto mounting of
+		PROCFS during File System initialization.
+
 menu "Exclude individual procfs entries"
 
 config FS_PROCFS_EXCLUDE_PROCESS
@@ -39,6 +46,10 @@ config FS_PROCFS_EXCLUDE_CPULOAD
 	default n
 	depends on SCHED_CPULOAD
 
+config FS_PROCFS_EXCLUDE_IRQS
+	bool "Exclude irqs"
+	default n
+
 config FS_PROCFS_EXCLUDE_MTD
 	bool "Exclude mtd"
 	depends on MTD
@@ -57,6 +68,11 @@ config FS_PROCFS_EXCLUDE_SMARTFS
 config FS_PROCFS_EXCLUDE_POWER
 	bool "Exclude power/domains"
 	depends on PM
+	default n
+
+config FS_PROCFS_EXCLUDE_EREPORT
+	bool "Exclude error report"
+	depends on ERROR_REPORT
 	default n
 
 endmenu #

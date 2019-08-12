@@ -55,34 +55,15 @@
  ****************************************************************************/
 
 #include <tinyara/config.h>
-
 #include <stdlib.h>
 #include <unistd.h>
-
+#include <debug.h>
 #include <tinyara/mm/mm.h>
-
-#if !defined(CONFIG_BUILD_PROTECTED) || !defined(__KERNEL__)
+#include "umm_heap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#ifdef CONFIG_BUILD_KERNEL
-/* In the kernel build, there a multiple user heaps; one for each task
- * group.  In this build configuration, the user heap structure lies
- * in a reserved region at the beginning of the .bss/.data address
- * space (CONFIG_ARCH_DATA_VBASE).  The size of that region is given by
- * ARCH_DATA_RESERVE_SIZE
- */
-
-#include <tinyara/addrenv.h>
-#define USR_HEAP (&ARCH_DATA_RESERVE->ar_usrheap)
-
-#else
-/* Otherwise, the user heap data structures are in common .bss */
-
-#define USR_HEAP &g_mmheap
-#endif
 
 /****************************************************************************
  * Type Definitions
@@ -103,6 +84,75 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/************************************************************************
+ * Name: malloc_at
+ *
+ * Description:
+ *   Allocate memory to the specific heap.
+ *   malloc_at tries to allocate memory for a specific heap which passed by api argument.
+ *   If there is no enough space to allocate, it will return NULL.
+ *
+ * Parameters:
+ *   heap_index - Index of specific heap.
+ *   size - Size (in bytes) of the memory region to be allocated.
+ *
+ * Return Value:
+ *   The address of the allocated memory (NULL on failure to allocate)
+ *
+ ************************************************************************/
+
+#if CONFIG_MM_NHEAPS > 1
+void *malloc_at(int heap_index, size_t size)
+{
+	if (heap_index >= CONFIG_MM_NHEAPS || heap_index < 0) {
+		mdbg("malloc_at failed. Wrong heap index (%d) of (%d)\n", heap_index, CONFIG_MM_NHEAPS);
+		return NULL;
+	}
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+	ARCH_GET_RET_ADDRESS
+	return mm_malloc(&USR_HEAP[heap_index], size, retaddr);
+#else
+	return mm_malloc(&USR_HEAP[heap_index], size);
+#endif
+}
+#endif
+
+#ifndef CONFIG_BUILD_KERNEL
+/************************************************************************
+ * Name: heap_malloc
+ *
+ * Description:
+ *   Traverse the user heap arrays by index, and try to alloc memory.
+ *
+ * Parameters:
+ *   size - Size (in bytes) of the memory region to be allocated.
+ *   s     - Start index
+ *   e     - End index
+ *   retaddr - caller function return address, used only for DEBUG_MM_HEAPINFO
+ * Return Value:
+ *   The address of the allocated memory (NULL on failure to allocate)
+ *
+ ************************************************************************/
+static void *heap_malloc(size_t size, int s, int e, size_t retaddr)
+{
+	int heap_idx;
+	void *ret;
+
+	for (heap_idx = s; heap_idx < e; heap_idx++) {
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+		ret = mm_malloc(&USR_HEAP[heap_idx], size, retaddr);
+#else
+		ret = mm_malloc(&USR_HEAP[heap_idx], size);
+#endif
+		if (ret != NULL) {
+			return ret;
+		}
+	}
+
+	return NULL;
+}
+#endif
 
 /************************************************************************
  * Name: malloc
@@ -136,7 +186,7 @@ FAR void *malloc(size_t size)
 	 */
 
 	do {
-		mem = mm_malloc(USR_HEAP, size);
+		mem = mm_malloc(BASE_HEAP, size);
 		if (!mem) {
 			brkaddr = sbrk(size);
 			if (brkaddr == (FAR void *)-1) {
@@ -146,14 +196,31 @@ FAR void *malloc(size_t size)
 	} while (mem == NULL);
 
 	return mem;
-#else
+#else /* CONFIG_BUILD_KERNEL */
+
+	int heap_idx = 0;
+	void *ret = NULL;
+
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 	ARCH_GET_RET_ADDRESS
-	return mm_malloc(USR_HEAP, size, retaddr);
 #else
-	return mm_malloc(USR_HEAP, size);
+	size_t retaddr = 0;
 #endif
-#endif
-}
 
-#endif							/* !CONFIG_BUILD_PROTECTED || !__KERNEL__ */
+#ifdef CONFIG_RAM_MALLOC_PRIOR_INDEX
+	heap_idx = CONFIG_RAM_MALLOC_PRIOR_INDEX;
+#endif
+
+	ret = heap_malloc(size, heap_idx, CONFIG_MM_NHEAPS, retaddr);
+	if (ret != NULL) {
+		return ret;
+	}
+
+#if (defined(CONFIG_RAM_MALLOC_PRIOR_INDEX) && CONFIG_RAM_MALLOC_PRIOR_INDEX > 0)
+	/* Try to mm_calloc to other heaps */
+	ret = heap_malloc(size, 0, CONFIG_RAM_MALLOC_PRIOR_INDEX, retaddr);
+#endif
+
+	return ret;
+#endif /* CONFIG_BUILD_KERNEL */
+}

@@ -55,33 +55,14 @@
  ****************************************************************************/
 
 #include <tinyara/config.h>
-
 #include <stdlib.h>
-
+#include <debug.h>
 #include <tinyara/mm/mm.h>
-
-#if !defined(CONFIG_BUILD_PROTECTED) || !defined(__KERNEL__)
+#include "umm_heap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-
-#if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
-/* In the kernel build, there a multiple user heaps; one for each task
- * group.  In this build configuration, the user heap structure lies
- * in a reserved region at the beginning of the .bss/.data address
- * space (CONFIG_ARCH_DATA_VBASE).  The size of that region is given by
- * ARCH_DATA_RESERVE_SIZE
- */
-
-#include <tinyara/addrenv.h>
-#define USR_HEAP (&ARCH_DATA_RESERVE->ar_usrheap)
-
-#else
-/* Otherwise, the user heap data structures are in common .bss */
-
-#define USR_HEAP &g_mmheap
-#endif
 
 /****************************************************************************
  * Private Functions
@@ -90,7 +71,34 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+/************************************************************************
+ * Name: realloc_at
+ *
+ * Description:
+ *   realloc to the specific heap.
+ *   realloc_at tries to allocate memory for a specific heap which passed by api argument.
+ *   If there is no enough space to allocate, it will return NULL.
+ *
+ * Return Value:
+ *   The address of the allocated memory (NULL on failure to allocate)
+ *
+ ************************************************************************/
 
+#if CONFIG_MM_NHEAPS > 1
+void *realloc_at(int heap_index, void *oldmem, size_t size)
+{
+	if (heap_index >= CONFIG_MM_NHEAPS || heap_index < 0) {
+		mdbg("realloc_at failed. Wrong heap index (%d) of (%d)\n", heap_index, CONFIG_MM_NHEAPS);
+		return NULL;
+	}
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+	ARCH_GET_RET_ADDRESS
+	return mm_realloc(&USR_HEAP[heap_index], oldmem, size, retaddr);
+#else
+	return mm_realloc(&USR_HEAP[heap_index], oldmem, size);
+#endif
+}
+#endif
 /****************************************************************************
  * Name: realloc
  *
@@ -108,12 +116,37 @@
 
 FAR void *realloc(FAR void *oldmem, size_t size)
 {
+	int heap_idx;
+	int prev_heap_idx;
+	void *ret;
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 	ARCH_GET_RET_ADDRESS
-	return mm_realloc(USR_HEAP, oldmem, size, retaddr);
-#else
-	return mm_realloc(USR_HEAP, oldmem, size);
 #endif
+	heap_idx = mm_get_heapindex(oldmem);
+	if (heap_idx < 0) {
+		return NULL;
+	}
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+	ret = mm_realloc(&USR_HEAP[heap_idx], oldmem, size, retaddr);
+#else
+	ret = mm_realloc(&USR_HEAP[heap_idx], oldmem, size);
+#endif
+	if (ret != NULL) {
+		return ret;
+	}
+	/* Try to mm_malloc to another heap */
+	mdbg("After realloc, memory can be allocated to another heap which is not as same as previous.\n");
+	prev_heap_idx = heap_idx;
+	for (heap_idx = 0; heap_idx < CONFIG_MM_NHEAPS; heap_idx++) {
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+		ret = mm_malloc(&USR_HEAP[heap_idx], size, retaddr);
+#else
+		ret = mm_malloc(&USR_HEAP[heap_idx], size);
+#endif
+		if (ret != NULL) {
+			mm_free(&USR_HEAP[prev_heap_idx], oldmem);
+			return ret;
+		}
+	}
+	return NULL;
 }
-
-#endif							/* !CONFIG_BUILD_PROTECTED || !__KERNEL__ */

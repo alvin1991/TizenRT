@@ -4,10 +4,12 @@
 #
 
 config TASK_MANAGER
-	bool "Task Manager"
+	bool "Enable Task Manager"
 	default n
-	select BUILTIN_APPS
-	depends on !DISABLE_SIGNALS && !DISABLE_MQUEUE
+	select SCHED_ATEXIT
+	select SCHED_WORKQUEUE if !BUILD_PROTECTED
+	select LIB_USRWORK if BUILD_PROTECTED
+	depends on !DISABLE_SIGNALS && !DISABLE_MQUEUE && TASK_NAME_SIZE != 0
 	---help---
 		Enables Task Manager.
 
@@ -17,7 +19,8 @@ config TASK_MANAGER_MAX_TASKS
 	int "Task Manager Max Task Num"
 	default MAX_TASKS
 	---help---
-		Task Manager can register this number of tasks
+		Task Manager can register this number of tasks.
+		Maximum MAX_TASKS tasks can be alive at the same time although it is greater than MAX_TASKS.
 
 config TASK_MANAGER_MAX_MSG
 	int "Task Manager Max Msg number"
@@ -25,27 +28,18 @@ config TASK_MANAGER_MAX_MSG
 	---help---
 		Task Manager can receive under this value.
 
-config TASK_MANAGER_DEBUG
-	bool "Enable Task Manager Debug Output"
+config TASK_MANAGER_USER_SPECIFIC_BROADCAST
+	bool "Enable User Specific Broadcast Message"
 	default n
-	depends on DEBUG
 	---help---
-		Task Manager Debug Output.
+		User defined broadcast messages are enabled to use at the Task Manager.
 
-if TASK_MANAGER_DEBUG
-config TASK_MANAGER_DEBUG_ERROR
-	bool "Enable Task Manager Error Debug Output"
-	default n
-	depends on DEBUG_ERROR
+config TASK_MANAGER_UNICAST_REPLY_TIMEOUT
+	int "Task Manager Unicast Reply Timeout(sec)"
+	default 0
 	---help---
-		Task Manager Error Debug Output.
-
-config TASK_MANAGER_DEBUG_INFO
-	bool "Enable Task Manager Informational Debug Output"
-	default n
-	depends on DEBUG_VERBOSE
-	---help---
-		Task Manager Informational Debug Output.
-endif
+		If timeout argument in task_manager_unicast is TM_RESPONSE_WAIT_INF, 
+		Task Manager will wait for reply during this seconds.
+		But if this config is zero, Task Manager will wait forever until receiving reply.
 
 endif

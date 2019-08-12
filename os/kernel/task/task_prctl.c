@@ -65,6 +65,11 @@
 #include <tinyara/sched.h>
 #include <tinyara/ttrace.h>
 
+#ifdef CONFIG_MESSAGING_IPC
+#include <sys/types.h>
+#include <messaging/messaging.h>
+#include "messaging/message_ctrl.h"
+#endif
 #include "sched/sched.h"
 #include "task/task.h"
 
@@ -161,26 +166,86 @@ int prctl(int option, ...)
 	}
 	break;
 #else
-	sdbg("Option not enabled: %d\n", option);
-	err = ENOSYS;
-	goto errout;
+		sdbg("Option not enabled: %d\n", option);
+		err = ENOSYS;
+		goto errout;
 #endif
-
+#ifdef CONFIG_MESSAGING_IPC
+	case PR_MSG_SAVE:
+	{
+		int ret;
+		char *port_name = va_arg(ap, char *);
+		pid_t pid = va_arg(ap, int);
+		int prio = va_arg(ap, int);
+		ret = messaging_save_receiver(port_name, pid, prio);
+		if (ret != OK) {
+			va_end(ap);
+			return ERROR;
+		}
+	}
+	break;
+	case PR_MSG_READ:
+	{
+		char *port_name = va_arg(ap, char *);
+		int *recv_arr = va_arg(ap, int *);
+		int *recv_cnt = va_arg(ap, int *);
+		int total_cnt;
+		static int curr_cnt = 0;
+		int ret;
+		ret = messaging_read_list(port_name, recv_arr, &total_cnt);
+		if (ret == ERROR) {
+			return ret;
+		}
+		curr_cnt += ret;
+		*recv_cnt = curr_cnt;
+		if (curr_cnt == total_cnt) {
+			/* Read whole receivers information. */
+			curr_cnt = 0;
+			return MSG_READ_ALL;
+		} else {
+			return MSG_READ_YET;
+		}
+	}
+	break;
+	case PR_MSG_REMOVE:
+	{
+		int ret;
+		char *port_name = va_arg(ap, char *);
+		ret = messaging_remove_list(port_name);
+		return ret;
+	}
+	break;
+#else /* CONFIG_MESSAGING_IPC */
+	case PR_MSG_SAVE:
+	case PR_MSG_READ:
+	case PR_MSG_REMOVE:
+	{
+		sdbg("Not supported.\n");
+		err = ENOSYS;
+		goto errout;
+	}
+#endif /* CONFIG_MESSAGING_IPC */
+	case PR_GET_STKLOG:
+	{
+#if defined(CONFIG_ENABLE_STACKMONITOR) && defined(CONFIG_DEBUG)
+		struct stkmon_save_s *dest_buf = va_arg(ap, struct stkmon_save_s *);
+		stkmon_copy_log(dest_buf);
+#else
+		sdbg("Not supported StackMonitor Logging\n");
+		err = ENOSYS;
+		goto errout;
+#endif
+	}
+	break;
 	default:
 		sdbg("Unrecognized option: %d\n", option);
 		err = EINVAL;
 		goto errout;
 	}
 
-	/* Not reachable unless CONFIG_TASK_NAME_SIZE is > 0.  NOTE: This might
-	 * change if additional commands are supported.
-	 */
-
-#if CONFIG_TASK_NAME_SIZE > 0
 	va_end(ap);
 	trace_end(TTRACE_TAG_TASK);
 	return OK;
-#endif
 
 errout:
 	va_end(ap);

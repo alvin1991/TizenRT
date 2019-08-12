@@ -2,12 +2,15 @@
 # For a description of the syntax of this configuration file,
 # see kconfig-language at https://www.kernel.org/doc/Documentation/kbuild/kconfig-language.txt
 #
-config KERNEL_CMDS
-	bool "Kernel shell commands"
+config SYSTEM_CMDS
+	bool "System shell commands"
 	default y
 	depends on TASH
 	---help---
-		register shell commands for kernel
+		Register system TASH commands enabled (ps, heapinfo, free, stackmonitor and etc).
+		This configuration just registers enabled system commands in TASH, not enables
+		system commands. Because they can be used without TASH by function calling.
+		Let's enable system commands at each configuration.
 
 config FS_CMDS
 	bool "FS shell commands"
@@ -49,6 +52,39 @@ config NET_PING_CMD_ICOUNT
 		Number of iterations that 'ping' has to be run.
 
 endif #NET_CMDS
+
+config ENABLE_CPULOAD
+	bool "cpuload"
+	default y
+	depends on SCHED_CPULOAD && !FS_PROCFS_EXCLUDE_CPULOAD
+	---help---
+		Display current cpuload or start/stop CPU load monitor.
+		CPU load monitor is a daemon that will periodically assess
+		CPU usage by all live tasks and threads in the system.
+
+config ENABLE_CPULOAD_MONITOR
+	bool "cpuload monitor"
+	default y
+	depends on ENABLE_CPULOAD && !CONFIG_DISABLE_PTHREAD && !CONFIG_DISABLE_SIGNALS
+	---help---
+		The CPU load monitor is a daemon that will periodically assess
+		CPU usage by all live tasks and threads in the system.
+		It is available if both signal and pthread are supported only, !DISABLE_SIGNALS && !DISABLE_PTHREAD.
+
+config CPULOADMONITOR_PRIORITY
+	int "CPU load monitor daemon priority"
+	default 100
+	depends on ENABLE_CPULOAD_MONITOR
+	---help---
+		The priority to use the the CPU load monitor daemon.  Default: 100
+
+config CPULOADMONITOR_INTERVAL
+	int "CPU load monitor frequency"
+	default 5
+	depends on ENABLE_CPULOAD_MONITOR
+	---help---
+		The rate in seconds that the CPU load monitor will wait before dumping
+		the next set CPU load usage information.  Default:  5 seconds.
 
 config ENABLE_DATE
 	bool "date"
@@ -92,8 +128,7 @@ config ENABLE_FREE
 config ENABLE_HEAPINFO
 	bool "heapinfo"
 	default y
-	depends on !BUILD_PROTECTED
-	select DEBUG_MM_HEAPINFO if DEBUG
+	depends on DEBUG_MM_HEAPINFO && FS_PROCFS
 	---help---
 		Show information about memory status per thread
 
@@ -115,7 +150,7 @@ endif
 config ENABLE_IRQINFO
 	bool "irqinfo"
 	default n
-	depends on TASH && !BUILD_PROTECTED && !BUILD_KERNEL
+	depends on TASH && !FS_PROCFS_EXCLUDE_IRQS
 	select DEBUG_IRQ_INFO if DEBUG
 	---help---
 		List the registered interrupts, it's occurrence counts and corresponding isr.
@@ -125,7 +160,10 @@ config ENABLE_KILL
 	default y
 	depends on !BUILD_PROTECTED
 	---help---
-		Send a signal to processes or process groups
+		Send a signal to processes or process groups.
+		When SIGKILL(9) is sent, a task/pthread which received signal will be terminated without any garbage collection.
+		Users can register their own handler for SIGKILL to free the allocated memory.
+		CONFIG_SIGKILL_HANDLER should be enabled for user's own handler.
 
 config ENABLE_KILLALL
 	bool "killall"
@@ -137,14 +175,14 @@ config ENABLE_KILLALL
 config ENABLE_PS
 	bool "ps"
 	default y
-	depends on !BUILD_PROTECTED
+	depends on FS_PROCFS && !FS_PROCFS_EXCLUDE_PROCESS
 	---help---
 		List of tasks/threads
 
 config ENABLE_STACKMONITOR
 	bool "Stack monitor"
 	default n
-	depends on !BUILD_PROTECTED && !BUILD_KERNEL
+	depends on !FS_PROCFS_EXCLUDE_PROCESS
 	select STACK_COLORATION
 	---help---
 		The stack monitor is a daemon that will periodically assess
@@ -153,6 +191,12 @@ config ENABLE_STACKMONITOR
 		not available if the kernel build or protected build is selected.
 
 if ENABLE_STACKMONITOR
+config STACKMONITOR_STACKSIZE
+	int "Stack monitor daemon stack size"
+	default 4096
+	---help---
+		The stack size of the stack monitor daemon.  Default: 4096 bytes
+
 config STACKMONITOR_PRIORITY
 	int "Stack monitor daemon priority"
 	default 100

@@ -16,7 +16,7 @@
  *
  ****************************************************************************/
 
-/// @file libc_signal.c
+/// @file tc_libc_signal.c
 /// @brief Test Case Example for Libc Signal API
 
 /****************************************************************************
@@ -28,10 +28,14 @@
 #include <signal.h>
 #include <time.h>
 #include <stdbool.h>
+#include <sys/wait.h>
 #include "tc_internal.h"
 
 #define SIG1  SIGUSR1
 #define SIG2  SIGUSR2
+#define SIG3  SIGALRM
+#define PRIORITY 100
+#define STACKSIZE 1024
 
 /****************************************************************************
  * Public Functions
@@ -318,24 +322,122 @@ static void tc_libc_signal_raise(void)
 	TC_SUCCESS_RESULT();
 }
 
+/**
+* @fn                   :tc_libc_signal_psignal
+* @brief                :tc_libc_signal_psignal test sigpsignal function
+* @scenario             :If pinfo == NULL, it set errno EINVAL.
+*                        Else if message is not a null pointer and is not the empty string, the string pointed to by the message argument will be written, followed by a colon and a space.
+*                        Then the signal description string associated with signum will be written, followed by a newline.
+* API's covered         :psiginfo()
+* Preconditions         :none
+* Preconditions         :none
+* @return               :void
+*/
+
+static void tc_libc_signal_psignal(void)
+{
+	siginfo_t siginfo;
+	siginfo.si_signo = SIG1;
+
+	psiginfo(NULL, NULL);
+	TC_ASSERT_EQ("psignal", get_errno(), EINVAL);
+
+	/* "User-defined signal 1 (POSIX): SIGUSR1" will be printed to stderr */
+	psiginfo(&siginfo, "User-defined signal 1 (POSIX)");
+
+	/* "SIGUSR1" will be printed to stderr */
+	psiginfo(&siginfo, NULL);
+
+	TC_SUCCESS_RESULT();
+}
+
+/**
+* @fn                   :tc_libc_signal_sigwait
+* @brief                :tc_libc_signal_sigwait test sigwait function
+* @scenario             :If signo < 0, it return errno by get_errno().
+*                        Else if signo > 0, return signo that signal number in the location referenced by sig.
+* API's covered         :sigwait()
+* Preconditions         :none
+* Preconditions         :none
+* @return               :void
+*/
+
+static int sigwait_receiver(int argc, FAR char *arvg[])
+{
+	sigset_t set = 1 << SIG3;
+	int ret_chk;
+	int sig;
+
+	ret_chk = sigwait(&set, &sig);
+
+	if (ret_chk == OK && sig == SIG3) {
+		return OK;
+	}
+	return ERROR;
+}
+
+static int sigwait_sender(int argc, FAR char *arvg[])
+{
+	return kill(atoi(arvg[argc - 1]), SIG3);
+}
+
+static void tc_libc_signal_sigwait(void)
+{
+	int recv_pid;
+	int snd_pid;
+	char buf[11];
+	char *const in_buf[] = { buf, NULL };
+	int recv_status;
+	int snd_status;
+	int recv_ret;
+	int snd_ret;
+
+	/* sigwait_receiver wait for sigwait_sender to send a signal
+	 * if sigwait_receiver receive signal from sigwait_sender then return OK
+	 * else return ERROR
+	 */
+	recv_pid = task_create("receiver", PRIORITY, STACKSIZE, sigwait_receiver, NULL);
+	TC_ASSERT_GEQ("task_create", recv_pid, OK);
+
+	/* sigwait_sender send signal to sigwait_receiver
+	 * if sigwait_sender send SIG3(SIGALRM) to sigwait_receiver then return OK
+	 * else return ERROR
+	 */
+	itoa(recv_pid, buf, 10);
+	snd_pid = task_create("sender", PRIORITY, STACKSIZE, sigwait_sender, in_buf);
+	TC_ASSERT_GEQ_CLEANUP("task_create", snd_pid, OK, task_delete(recv_pid));
+
+	snd_ret = (int)waitpid(snd_pid, &snd_status, 0);
+	TC_ASSERT_NEQ_CLEANUP("waitpid", snd_ret, ERROR, task_delete(recv_pid));
+	TC_ASSERT_EQ_CLEANUP("sigwait_sender", snd_status, OK, task_delete(recv_pid));
+
+	recv_ret = (int)waitpid(recv_pid, &recv_status, 0);
+	TC_ASSERT_NEQ_CLEANUP("waitpid", recv_ret, ERROR, task_delete(recv_pid));
+	TC_ASSERT_EQ_CLEANUP("sigwait_receiver", recv_status, OK, task_delete(recv_pid));
+
+	TC_SUCCESS_RESULT();
+}
+
 /****************************************************************************
  * Name: libc_signal
  ****************************************************************************/
 
 int libc_signal_main(void)
 {
-	tc_libc_signal_sigemptyset();
-	tc_libc_signal_sigfillset();
+	tc_libc_signal_psignal();
+	tc_libc_signal_raise();
 	tc_libc_signal_sigaddset();
 	tc_libc_signal_sigdelset();
-	tc_libc_signal_sigismember();
+	tc_libc_signal_sigemptyset();
+	tc_libc_signal_sigfillset();
 	tc_libc_signal_sigignore();
-	tc_libc_signal_raise();
-	tc_libc_signal_sigset();
+	tc_libc_signal_sigismember();
 	tc_libc_signal_signal();
 #ifndef CONFIG_DISABLE_POSIX_TIMERS
 	tc_libc_signal_sigpause();
 #endif
+	tc_libc_signal_sigset();
+	tc_libc_signal_sigwait();
 
 	return 0;
 }

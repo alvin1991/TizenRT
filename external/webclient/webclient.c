@@ -67,16 +67,19 @@
 
 #include <tinyara/config.h>
 #include <tinyara/compiler.h>
-#include <debug.h>
 
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <debug.h>
+#include <pthread.h>
 
 #ifdef CONFIG_NET_LWIP_NETDB
 #include <netdb.h>
@@ -1048,7 +1051,13 @@ retry:
 			goto errout;
 		} else if (len == 0) {
 			ndbg("Finish read\n");
-			goto errout;
+			if (mlen.message_len - mlen.sentence_start == mlen.content_len) {
+				ndbg("download completed successfully\n");
+				break;
+			} else {
+				ndbg("Error: Receive Fail\n");
+				goto errout;
+			}
 		}
 
 		usleep(1);
@@ -1198,7 +1207,13 @@ static pthread_addr_t wget_base(void *arg)
 			goto errout;
 		} else if (len == 0) {
 			ndbg("Finish read\n");
-			goto errout;
+			if (mlen.message_len - mlen.sentence_start == mlen.content_len) {
+				ndbg("download completed successfully\n");
+				break;
+			} else {
+				ndbg("Error: Receive Fail\n");
+				goto errout;
+			}
 		}
 
 		usleep(1);

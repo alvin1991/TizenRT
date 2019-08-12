@@ -19,102 +19,228 @@
 #include <stdio.h>
 #include <string.h>
 #include <media/FileInputDataSource.h>
+#include "tc_common.h"
 
-#define FILEINPUTDATASOURCE_TEST_FILE "/mnt/fileinputdatasource.raw"
+static const char dummyfilepath[] = "/mnt/fileinputdatasource.raw";
+static const char testData[] = "dummydata";
+static unsigned char *buf;
 
-const char testData[] = "dummydata";
-
-class FileInputDataSourceTest : public ::testing::Test
+static void SetUp(void)
 {
-protected:
-	virtual void SetUp()
-	{
-		fp = fopen(FILEINPUTDATASOURCE_TEST_FILE, "w");
-		fputs(testData, fp);
+	buf = new unsigned char[21];
+	if (buf == nullptr) {
+		printf("fail to allocate buffer\n");
+	}
+
+	FILE *fp = fopen(dummyfilepath, "w");
+	if (fp != NULL) {
+		int ret = fputs(testData, fp);
+		if (ret != (int)strlen(testData)) {
+			printf("fail to fputs\n");
+		}
 		fclose(fp);
-		source = new FileInputDataSource(FILEINPUTDATASOURCE_TEST_FILE);
-		buf = new unsigned char[21];
-		memset(buf, 0, 21);
+	} else {
+		printf("fail to open %s, errno : %d\n", dummyfilepath, get_errno());
+	}
+}
+
+static void TearDown()
+{
+	int ret = remove(dummyfilepath);
+	if (ret != 0) {
+		printf("fail to remove %s, errno : %d\n", dummyfilepath, get_errno());
 	}
 
-	virtual void TearDown()
+	delete[] buf;
+}
+
+static void utc_media_FileInputDataSource_getChannels_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_getChannels", source.getChannels(), 2);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_getSampleRate_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_getSampleRate", source.getSampleRate(), 16000);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_getPcmFormat_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_getPcmFormat", source.getPcmFormat(), media::AUDIO_FORMAT_TYPE_S16_LE);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_getAudioType_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_getAudioType", source.getAudioType(), media::AUDIO_TYPE_INVALID);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_setChannels_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	source.setChannels(1);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_setChannels", source.getChannels(), 1);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_setSampleRate_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	source.setSampleRate(44100);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_setSampleRate", source.getSampleRate(), 44100);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_setPcmFormat_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	source.setPcmFormat(media::AUDIO_FORMAT_TYPE_S8);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_setPcmFormat", source.getPcmFormat(), media::AUDIO_FORMAT_TYPE_S8);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_setAudioType_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	source.setAudioType(media::AUDIO_TYPE_MP3);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_setAudioType", source.getAudioType(), media::AUDIO_TYPE_MP3);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_open_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_open", source.open(), true);
+
+	source.close();
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_open_n(void)
+{
+	media::stream::FileInputDataSource source("non-exist-file");
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_open", source.open(), false);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_close_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	source.open();
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_close", source.close(), true);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_close_n(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_close", source.close(), false);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_isPrepared_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	source.open();
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_isPrepared", source.isPrepared(), true);
+
+	source.close();
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_isPrepared_n(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_isPrepared", source.isPrepared(), false);
+
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_read_p(void)
+{
+	media::stream::FileInputDataSource source(dummyfilepath);
+	memset(buf, 0, 21);
+	source.open();
+
+	TC_ASSERT_EQ("utc_media_FileInputDataSource_read", source.read(buf, 100), (ssize_t)strlen(testData));
+
+	source.close();
+	TC_SUCCESS_RESULT();
+}
+
+static void utc_media_FileInputDataSource_read_n(void)
+{
+	/* read without open */
 	{
-		remove(FILEINPUTDATASOURCE_TEST_FILE);
-		delete buf;
-		delete source;
+		media::stream::FileInputDataSource source(dummyfilepath);
+		memset(buf, 0, 21);
+
+		TC_ASSERT_EQ("utc_media_FileInputDataSource_read", source.read(buf, 100), EOF);
+	}
+	/* read nullptr buffer */
+	{
+		media::stream::FileInputDataSource source(dummyfilepath);
+
+		TC_ASSERT_EQ("utc_media_FileInputDataSource_read", source.read(nullptr, 100), EOF);
 	}
 
-	FILE* fp;
-	FileInputDataSource* source;
-	unsigned char *buf;
-};
-
-TEST_F(FileInputDataSourceTest, open)
-{
-	EXPECT_TRUE(source->open());
-
-	source->close();
+	TC_SUCCESS_RESULT();
 }
 
-TEST_F(FileInputDataSourceTest, openTwice)
+int utc_media_FileInputDataSource_main(void)
 {
-	source->open();
+	SetUp();
+	utc_media_FileInputDataSource_getChannels_p();
+	utc_media_FileInputDataSource_getSampleRate_p();
+	utc_media_FileInputDataSource_getPcmFormat_p();
+	utc_media_FileInputDataSource_getAudioType_p();
 
-	EXPECT_FALSE(source->open());
+	utc_media_FileInputDataSource_setChannels_p();
+	utc_media_FileInputDataSource_setSampleRate_p();
+	utc_media_FileInputDataSource_setPcmFormat_p();
+	utc_media_FileInputDataSource_setAudioType_p();
 
-	source->close();
-}
+	utc_media_FileInputDataSource_open_p();
+	utc_media_FileInputDataSource_open_n();
 
-TEST_F(FileInputDataSourceTest, close)
-{
-	source->open();
+	utc_media_FileInputDataSource_close_p();
+	utc_media_FileInputDataSource_close_n();
 
-	EXPECT_TRUE(source->close());
-}
+	utc_media_FileInputDataSource_isPrepared_p();
+	utc_media_FileInputDataSource_isPrepared_n();
 
-TEST_F(FileInputDataSourceTest, closeWithoutOpen)
-{
-	EXPECT_FALSE(source->close());
-}
-
-TEST_F(FileInputDataSourceTest, closeTwice)
-{
-	source->open();
-	source->close();
-
-	EXPECT_FALSE(source->close());
-}
-
-TEST_F(FileInputDataSourceTest, isPrepare)
-{
-	source->open();
-
-	EXPECT_TRUE(source->isPrepare());
-
-	source->close();
-}
-
-TEST_F(FileInputDataSourceTest, isPrepareWithoutOpen)
-{
-	EXPECT_FALSE(source->isPrepare());
-}
-
-TEST_F(FileInputDataSourceTest, read)
-{
-	source->open();
-
-	EXPECT_EQ(source->read(buf, 100), strlen(testData));
-	EXPECT_STREQ((char *)buf, testData);
-
-	source->close();
-}
-
-TEST_F(FileInputDataSourceTest, readAt)
-{
-	source->open();
-
-	EXPECT_EQ(source->readAt(1, 0, buf, 100), strlen(testData + 1));
-	EXPECT_STREQ((char *)buf, testData + 1);
-
-	source->close();
+	utc_media_FileInputDataSource_read_p();
+	utc_media_FileInputDataSource_read_n();
+	TearDown();
+	return 0;
 }

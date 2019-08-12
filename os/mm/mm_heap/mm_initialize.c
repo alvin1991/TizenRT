@@ -190,7 +190,9 @@ void mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart, size_t heapsi
 
 void mm_initialize(FAR struct mm_heap_s *heap, FAR void *heapstart, size_t heapsize)
 {
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
 	int i;
+#endif
 
 	mlldbg("Heap: start=%p size=%u\n", heapstart, heapsize);
 
@@ -214,11 +216,7 @@ void mm_initialize(FAR struct mm_heap_s *heap, FAR void *heapstart, size_t heaps
 
 	/* Initialize the node array */
 
-	memset(heap->mm_nodelist, 0, sizeof(struct mm_freenode_s) * MM_NNODES);
-	for (i = 1; i < MM_NNODES; i++) {
-		heap->mm_nodelist[i - 1].flink = &heap->mm_nodelist[i];
-		heap->mm_nodelist[i].blink = &heap->mm_nodelist[i - 1];
-	}
+	memset(heap->mm_nodelist, 0, sizeof(struct mm_freenode_s) * (MM_NNODES + 1));
 
 	/* Initialize the malloc semaphore to one (to support one-at-
 	 * a-time access to private data sets).
@@ -229,7 +227,13 @@ void mm_initialize(FAR struct mm_heap_s *heap, FAR void *heapstart, size_t heaps
 	/* Add the initial region of memory to the heap */
 
 	mm_addregion(heap, heapstart, heapsize);
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+	for (i = 0; i < CONFIG_MAX_TASKS; i++) {
+		heap->alloc_list[i].pid = HEAPINFO_INIT_INFO;
+	}
+	heap->total_alloc_size = heap->peak_alloc_size = 0;
 #ifdef CONFIG_HEAPINFO_USER_GROUP
 	heapinfo_update_group_info(-1, -1, HEAPINFO_INIT_INFO);
+#endif
 #endif
 }

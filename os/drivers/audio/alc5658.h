@@ -66,36 +66,6 @@
 #include <stdint.h>
 
 /****************************************************************************
- * Pre-processor Definitions
- ****************************************************************************/
-
-#define ALC5658_DEFAULT_SAMPRATE    16000
-#define ALC5658_DEFAULT_NCHANNELS    2
-#define ALC5658_DEFAULT_BPSAMP    16
-#define FAIL    0xFFFF
-#define MUTE_HP_LR    0x8080
-#define UNMUTE_HP_LR    0x0
-#define ALC5658_HP_VOL_MIN    0x0
-#define ALC5658_HP_VOL_MAX    0x1F
-#define ALC5658_HP_VOL_DEFAULT    0x1a
-#define ALC5658_GAIN_MIN    0x0
-#define ALC5658_GAIN_MAX    0x45
-#define ALC5658_GAIN_DEFAULT    0x20
-#define VOL_REG_BITSHIFT_COUNT    8
-
-#define alc5658_givesem(s) sem_post(s)
-
-/* Commonly defined and redefined macros */
-
-#ifndef MIN
-#define MIN(a, b)                   (((a) < (b)) ? (a) : (b))
-#endif
-
-#ifndef MAX
-#define MAX(a, b)                   (((a) > (b)) ? (a) : (b))
-#endif
-
-/****************************************************************************
  * Public Types
  ****************************************************************************/
 /* This should be put under hammer to strip size
@@ -125,13 +95,11 @@ struct alc5658_dev_s {
 	struct work_s work;			/* Interrupt work */
 #endif
 	uint16_t samprate;			/* Configured samprate (samples/sec) */
-#ifndef CONFIG_AUDIO_EXCLUDE_VOLUME
 #ifndef CONFIG_AUDIO_EXCLUDE_BALANCE
 	uint16_t balance;			/* Current balance level (b16) */
 #endif							/* CONFIG_AUDIO_EXCLUDE_BALANCE */
 	uint16_t volume;			/* Current volume level {0..31} */
-#endif							/* CONFIG_AUDIO_EXCLUDE_VOLUME */
-	uint16_t gain;				/* IN port gain */
+	uint16_t gain;				/* In port gain */
 	uint8_t nchannels;			/* Number of channels (1 or 2) */
 	uint8_t bpsamp;				/* Bits per sample (8 or 16) */
 	volatile uint8_t inflight;	/* Number of audio buffers in-flight */
@@ -146,7 +114,7 @@ struct alc5658_dev_s {
 #endif
 	bool reserved;				/* True: Device is reserved */
 	volatile int result;		/* The result of the last transfer */
-	bool inout;					/* True: IN device */
+	bool inout;					/* True: In device */
 };
 
 /****************************************************************************

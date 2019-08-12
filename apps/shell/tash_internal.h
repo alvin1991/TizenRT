@@ -31,20 +31,24 @@
 #ifdef CONFIG_DEBUG_TASH
 #ifdef CONFIG_DEBUG_TASH_ERROR
 #define shdbg(format, ...)        dbg(format, ##__VA_ARGS__)
+#else
+#define shdbg(...)
 #endif
-#ifdef CONFIG_DEBUG_TASH_VERBOSE
+#ifdef CONFIG_DEBUG_TASH_INFO
 #define shvdbg(format, ...)       vdbg(format, ##__VA_ARGS__)
+#else
+#define shvdbg(...)
 #endif
 #else  /* !CONFIG_DEBUG_TASH */
-#define shdbg(x...)
-#define shvdbg(x...)
+#define shdbg(...)
+#define shvdbg(...)
 #endif /* CONFIG_DEBUG_TASH */
 #else  /* !CONFIG_CPP_HAVE_VARARGS */
 #ifdef CONFIG_DEBUG_TASH
 #ifdef CONFIG_DEBUG_TASH_ERROR
 #define shdbg        dbg
 #endif
-#ifdef CONFIG_DEBUG_TASH_VERBOSE
+#ifdef CONFIG_DEBUG_TASH_INFO
 #define shvdbg       vdbg
 #endif
 #else  /* !CONFIG_DEBUG_TASH */
@@ -57,6 +61,7 @@ extern void tash_register_basic_cmds(void);
 extern int tash_execute_cmdline(char *buff);
 extern int tash_execute_cmd(char **args, int argc);
 extern int tash_init(void);
+extern void tash_stop(void);
 #ifdef CONFIG_TASH_SCRIPT
 extern int tash_script(int argc, char **args);
 #endif

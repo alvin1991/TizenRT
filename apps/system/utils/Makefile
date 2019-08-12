@@ -71,8 +71,9 @@ ifneq ($(CONFIG_DISABLE_ENVIRON),y)
 CSRCS += fs_getpath.c
 endif
 
-ifeq ($(CONFIG_TASH),y)
-CSRCS += kernelcmd.c
+ifeq ($(CONFIG_SYSTEM_CMDS),y)
+CSRCS += systemcmd.c
+endif
 
 ifeq ($(CONFIG_FS_CMDS),y)
 CSRCS += fscmd.c
@@ -82,6 +83,9 @@ ifeq ($(CONFIG_NET_CMDS),y)
 CSRCS += netcmd.c
 ifeq ($(CONFIG_NET_PING_CMD),y)
 CSRCS += netcmd_ping.c
+endif
+ifeq ($(CONFIG_NET_NETMON),y)
+CSRCS += netcmd_netmon.c
 endif
 endif
 
@@ -95,58 +99,68 @@ ifeq ($(CONFIG_NETUTILS_TFTPC),y)
 CSRCS += netcmd_tftpc.c
 endif
 
-endif #CONFIG_TASH
+ifeq ($(CONFIG_ENABLE_CPULOAD),y)
+CSRCS += utils_cpuload.c
+endif
 
 ifeq ($(CONFIG_ENABLE_DATE),y)
-CSRCS += kdbg_date.c
+CSRCS += utils_date.c
 endif
 
 ifeq ($(CONFIG_ENABLE_DMESG),y)
-CSRCS += kdbg_dmesg.c
+CSRCS += utils_dmesg.c
 endif
 
-ifneq ($(CONFIG_DISABLE_ENVIRON),y)
 ifeq ($(CONFIG_ENABLE_ENV_GET),y)
-CSRCS += kdbg_env.c
+CSRCS += utils_env.c
 else ifeq ($(CONFIG_ENABLE_ENV_SET),y)
-CSRCS += kdbg_env.c
+CSRCS += utils_env.c
 else ifeq ($(CONFIG_ENABLE_ENV_UNSET),y)
-CSRCS += kdbg_env.c
-endif
+CSRCS += utils_env.c
 endif
 
 ifeq ($(CONFIG_ENABLE_FREE),y)
-CSRCS += kdbg_free.c
+CSRCS += utils_free.c
 endif
 
 ifeq ($(CONFIG_ENABLE_HEAPINFO),y)
-CSRCS += kdbg_heapinfo.c
+CSRCS += utils_heapinfo.c
 endif
 
 ifeq ($(CONFIG_ENABLE_IRQINFO),y)
-CSRCS += kdbg_irqinfo.c
+CSRCS += utils_irqinfo.c
 endif
 
 ifeq ($(CONFIG_ENABLE_KILL),y)
-CSRCS += kdbg_kill.c
+CSRCS += utils_kill.c
 else ifeq ($(CONFIG_ENABLE_KILLALL),y)
-CSRCS += kdbg_kill.c
+CSRCS += utils_kill.c
 endif
 
 ifeq ($(CONFIG_ENABLE_PS),y)
-CSRCS += kdbg_ps.c
+CSRCS += utils_ps.c
 endif
 
 ifeq ($(CONFIG_ENABLE_STACKMONITOR),y)
-CSRCS += kdbg_stackmonitor.c
+CSRCS += utils_stackmonitor.c
 endif
 
 ifeq ($(CONFIG_TTRACE),y)
-CSRCS += kdbg_ttrace.c
+CSRCS += utils_ttrace.c
 endif
 
 ifeq ($(CONFIG_ENABLE_UPTIME),y)
-CSRCS += kdbg_uptime.c
+CSRCS += utils_uptime.c
+endif
+
+ifeq ($(CONFIG_ENABLE_CPULOAD),y)
+CSRCS += utils_proc.c
+else ifeq ($(CONFIG_ENABLE_PS),y)
+CSRCS += utils_proc.c
+else ifeq ($(CONFIG_ENABLE_STACKMONITOR),y)
+CSRCS += utils_proc.c
+else ifeq ($(CONFIG_ENABLE_HEAPINFO),y)
+CSRCS += utils_proc.c
 endif
 
 AOBJS = $(ASRCS:.S=$(OBJEXT))

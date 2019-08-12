@@ -75,19 +75,35 @@ endif
 # Add external directories
 
 ifeq ($(CONFIG_BUILD_PROTECTED),y)
+
 USER_ADDONS += $(EXTDIR)
 ifeq ($(CONFIG_HAVE_CXX),y)
 # libc++ library is added in external directory as an add-on.
 USER_ADDONS += $(EXTDIR)$(DELIM)libcxx
 endif
+ifeq ($(CONFIG_ENABLE_IOTIVITY),y)
+USER_ADDONS += $(EXTDIR)$(DELIM)iotivity
+endif
+ifeq ($(CONFIG_ENABLE_IOTJS),y)
+USER_ADDONS += $(EXTDIR)$(DELIM)iotjs$(DELIM)config$(DELIM)tizenrt
+endif
+
 else
+
 ifneq ($(CONFIG_BUILD_KERNEL),y)
 TINYARA_ADDONS += $(EXTDIR)
 ifeq ($(CONFIG_HAVE_CXX),y)
 # libc++ library is added in external directory as an add-on.
 TINYARA_ADDONS += $(EXTDIR)$(DELIM)libcxx
 endif
+ifeq ($(CONFIG_ENABLE_IOTIVITY),y)
+TINYARA_ADDONS += $(EXTDIR)$(DELIM)iotivity
 endif
+ifeq ($(CONFIG_ENABLE_IOTJS),y)
+TINYARA_ADDONS += $(EXTDIR)$(DELIM)iotjs$(DELIM)config$(DELIM)tizenrt
+endif
+endif # CONFIG_BUILD_KERNEL
+
 endif
 
 # Add Framework directories
@@ -126,11 +142,15 @@ endif
 
 NONFSDIRS = kernel $(ARCH_SRC) $(TINYARA_ADDONS)
 FSDIRS = fs drivers
+ifeq ($(CONFIG_BINFMT_ENABLE),y)
+FSDIRS += binfmt
+endif
 CONTEXTDIRS = $(APPDIR)
 CONTEXTDIRS += $(TOOLSDIR)
-ifeq ($(CONFIG_HEAPINFO_USER_GROUP),y)
 CONTEXTDIRS += mm
-endif
+#ifeq ($(CONFIG_ENABLE_IOTIVITY),y)
+#CONTEXTDIRS += $(EXTDIR)$(DELIM)iotivity
+#endif
 USERDIRS =
 OTHERDIRS = $(LIBRARIES_DIR)
 
@@ -170,6 +190,7 @@ else
 OTHERDIRS += syscall
 endif
 
+USERDIRS += $(TOPDIR)$(DELIM)..$(DELIM)loadable_apps
 
 # CLEANDIRS are the directories that will clean in.  These are
 #   all directories that we know about.
@@ -205,6 +226,20 @@ KERNDEPDIRS += audio
 endif
 CLEANDIRS += audio
 
+# Add Compression Module
+
+ifeq ($(CONFIG_COMPRESSED_BINARY),y)
+KERNDEPDIRS += compression
+endif
+CLEANDIRS += compression tools/compression
+
+# Add Crypto Module
+
+ifeq ($(CONFIG_CRYPTO),y)
+KERNDEPDIRS += crypto
+endif
+CLEANDIRS += crypto
+
 # Add networking directories to KERNDEPDIRS and CLEANDIRS
 
 ifeq ($(CONFIG_NET),y)
@@ -225,4 +260,9 @@ ifeq ($(CONFIG_LOGM),y)
 KERNDEPDIRS += logm
 endif
 CLEANDIRS += logm
+
+ifeq ($(CONFIG_LOGM),y)
+KERNDEPDIRS += se
+endif
+CLEANDIRS += se
 

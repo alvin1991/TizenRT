@@ -25,13 +25,15 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <tinyara/config.h>
-#include "tc_internal.h"
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <errno.h>
 #include <sys/wait.h>
 #include <sched.h>
+#include <sys/ioctl.h>
+#include <tinyara/testcase_drv.h>
+#include "tc_internal.h"
 
 #define WAIT_TIME 1
 #define ARRLEN 2
@@ -40,47 +42,26 @@
 static bool g_pthread_callback;
 
 /**
-* @fn                   :thread_verifytcb_cb
-* @description          :Function for itc_sched_verifytcb_p
-* @return               :void*
-*/
-static void *thread_verifytcb_cb(void *param)
-{
-	bool ret_chk = false;
-	struct tcb_s *st_tcb;
-	st_tcb = sched_self();
-	if (st_tcb == NULL) {
-		g_pthread_callback = false;
-		return NULL;
-	}
-	ret_chk = sched_verifytcb(st_tcb);
-	if (ret_chk == false) {
-		g_pthread_callback = false;
-		return NULL;
-	}
-
-	g_pthread_callback = true;
-	return NULL;
-}
-
-/**
 * @fn                   :thread_schedself_cb
 * @description          :Function for itc_sched_self_p
 * @return               :void*
 */
 static void *thread_schedself_cb(void *param)
 {
-	struct tcb_s *st_tcbself;
-	struct tcb_s *st_tcbpid;
-	st_tcbpid = sched_self();
-	if (st_tcbpid == NULL) {
+	int pre_self_pid;
+	int self_pid;
+	int fd;
+	fd = tc_get_drvfd();
+
+	pre_self_pid = ioctl(fd, TESTIOC_GET_SELF_PID, 0);
+	if (pre_self_pid == ERROR) {
 		g_pthread_callback = false;
 		return NULL;
 	}
 
 	/* should return tcb for current process */
-	st_tcbself = sched_self();
-	if (st_tcbself == NULL || st_tcbself->pid != st_tcbpid->pid) {
+	self_pid = ioctl(fd, TESTIOC_GET_SELF_PID, 0);
+	if (self_pid == ERROR || pre_self_pid != self_pid) {
 		g_pthread_callback = false;
 		return NULL;
 	}
@@ -171,40 +152,10 @@ static void itc_sched_self_p(void)
 	TC_SUCCESS_RESULT();
 }
 
-/**
-* @fn                   :itc_sched_verifytcb_p
-* @brief                :Returns true if tcb refers to active task, false if it is state tcb handle
-* @scenario             :sched_verifytcb returns true if tcb refers to active task, false if it is state tcb handle
-* API's covered         :sched_verifytcb
-* Preconditions         :none
-* Postconditions        :none
-*/
-static void itc_sched_verifytcb_p(void)
-{
-	pthread_t thread_id[THREAD_CNT];
-	int ret_chk;
-	int exec_index;
-
-	for (exec_index = 0; exec_index < THREAD_CNT; exec_index++) {
-		g_pthread_callback = false;
-		ret_chk = pthread_create(&thread_id[exec_index], NULL, thread_verifytcb_cb, NULL);
-		sleep(WAIT_TIME);
-		TC_ASSERT_EQ_CLEANUP("pthread_create", ret_chk, OK, thread_cleanup(thread_id, exec_index));
-		TC_ASSERT_EQ_CLEANUP("sched_verifytcb", g_pthread_callback, true, thread_cleanup(thread_id, exec_index));
-	}
-
-	for (exec_index = 0; exec_index < THREAD_CNT; exec_index++) {
-		pthread_join(thread_id[exec_index], NULL);
-	}
-
-	TC_SUCCESS_RESULT();
-}
-
 int itc_sched_main(void)
 {
 	itc_sched_setget_scheduler_param_p_all_priority();
 	itc_sched_self_p();
-	itc_sched_verifytcb_p();
 
 	return 0;
 }

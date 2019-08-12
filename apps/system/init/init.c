@@ -36,9 +36,14 @@
 #ifdef CONFIG_SYSTEM_INFORMATION
 #include <apps/system/sysinfo.h>
 #endif
-#if defined(CONFIG_BUILD_PROTECTED) && defined(CONFIG_FS_PROCFS)
-#include <errno.h>
-#include <sys/mount.h>
+#ifdef CONFIG_TASK_MANAGER
+#include <task_manager/task_manager.h>
+#endif
+#ifdef CONFIG_EVENTLOOP
+#include <tinyara/eventloop.h>
+#endif
+#ifdef CONFIG_MEDIA
+#include <media/media_init.h>
 #endif
 
 /****************************************************************************
@@ -51,10 +56,6 @@
 #undef CONFIG_LIB_USRWORK
 #endif
 
-#ifdef CONFIG_DM
-extern void dm_cb_register_init(void);
-#endif
-
 #ifdef CONFIG_ENABLE_IOTJS
 extern void iotjs_register_cmds(void);
 #endif
@@ -65,8 +66,8 @@ extern void iotjs_register_cmds(void);
 #ifdef CONFIG_TASH
 static void tash_register_cmds(void)
 {
-#if defined(CONFIG_KERNEL_CMDS) && !defined(CONFIG_BUILD_PROTECTED)
-	kernel_register_utilcmds();
+#if defined(CONFIG_SYSTEM_CMDS)
+	system_register_utilcmds();
 #endif
 
 #ifdef CONFIG_FS_CMDS
@@ -102,16 +103,11 @@ int main(int argc, FAR char *argv[])
 int preapp_start(int argc, char *argv[])
 #endif
 {
-#if defined(CONFIG_LIB_USRWORK) || defined(CONFIG_TASH)
+#if defined(CONFIG_LIB_USRWORK) || defined(CONFIG_TASH) || defined(CONFIG_EVENTLOOP) || defined(CONFIG_TASK_MANAGER)
 	int pid;
 #endif
-
-#if defined(CONFIG_BUILD_PROTECTED) && defined(CONFIG_FS_PROCFS)
+#if defined(CONFIG_MEDIA)
 	int ret;
-	ret = mount(NULL, "/proc", "procfs", 0, NULL);
-	if (ret < 0) {
-		printf("procfs mount is failed, error code is %d\n", get_errno());
-	}
 #endif
 
 #ifdef CONFIG_SYSTEM_INFORMATION
@@ -128,10 +124,6 @@ int preapp_start(int argc, char *argv[])
 	}
 #endif
 
-#ifdef CONFIG_DM
-	dm_cb_register_init();
-#endif
-
 #ifdef CONFIG_TASH
 	pid = tash_start();
 	if (pid <= 0) {
@@ -142,7 +134,33 @@ int preapp_start(int argc, char *argv[])
 	tash_register_cmds();
 #endif
 
-#if defined(CONFIG_LIB_USRWORK) || defined(CONFIG_TASH)
+#ifdef CONFIG_TASK_MANAGER
+#define TASKMGR_STACK_SIZE 2048
+#define TASKMGR_PRIORITY 200
+	pid = task_create("task_manager", TASKMGR_PRIORITY, TASKMGR_STACK_SIZE, task_manager, (FAR char *const *)NULL);
+	if (pid < 0) {
+		printf("Failed to create Task Manager\n");
+		goto error_out;
+	}
+#endif
+
+#ifdef CONFIG_EVENTLOOP
+	pid = eventloop_task_start();
+	if (pid <= 0) {
+		printf("eventloop is failed to start, error code is %d\n", pid);
+		goto error_out;
+	}
+#endif
+
+#ifdef CONFIG_MEDIA
+	ret = media_init();
+	if (ret < 0) {
+		printf("media is failed to start, error code is %d\n", ret);
+		return ret;
+	}
+#endif
+
+#if defined(CONFIG_LIB_USRWORK) || defined(CONFIG_TASH) || defined(CONFIG_EVENTLOOP) || defined(CONFIG_TASK_MANAGER)
 error_out:
 	return pid;
 #else
