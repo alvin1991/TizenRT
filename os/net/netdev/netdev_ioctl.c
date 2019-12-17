@@ -77,13 +77,13 @@
 #include <net/ethernet.h>
 #include <netinet/in.h>
 
-#include <net/lwip/netif.h>
-#include <net/lwip/netifapi.h>
-#include <net/lwip/igmp.h>
-#include <net/lwip/dhcp.h>
-#include <net/lwip/mld6.h>
-#include <net/lwip/ip6.h>
-#include <net/lwip/stats.h>
+#include "lwip/netif.h"
+#include "lwip/netifapi.h"
+#include "lwip/igmp.h"
+#include "lwip/dhcp.h"
+#include "lwip/mld6.h"
+#include "lwip/ip6.h"
+#include "lwip/stats.h"
 
 #ifdef CONFIG_NET_IGMP
 #include "sys/sockio.h"
@@ -555,7 +555,7 @@ static FAR struct netif *netdev_ifrdev(FAR struct ifreq *req)
  *
  ****************************************************************************/
 
-static int netdev_ifrioctl(FAR struct socket *sock, int cmd, FAR struct ifreq *req)
+static int netdev_ifrioctl(int cmd, FAR struct ifreq *req)
 {
 	FAR struct netif *dev;
 	int ret = -EINVAL;
@@ -923,7 +923,7 @@ static FAR struct netif *netdev_imsfdev(FAR struct ip_msfilter *imsf)
  ****************************************************************************/
 
 #ifdef CONFIG_NET_NETMON
-static int netdev_nmioctl(FAR struct socket *sock, int cmd, void  *arg)
+static int netdev_nmioctl(int cmd, void  *arg)
 {
 	int ret = -EINVAL;
 	int num_copy;
@@ -971,7 +971,7 @@ static int netdev_nmioctl(FAR struct socket *sock, int cmd, void  *arg)
  ****************************************************************************/
 
 #ifdef CONFIG_NET_IGMP
-static int netdev_imsfioctl(FAR struct socket *sock, int cmd, FAR struct ip_msfilter *imsf)
+static int netdev_imsfioctl(int cmd, FAR struct ip_msfilter *imsf)
 {
 	FAR struct netif *dev;
 	int ret = -EINVAL;
@@ -1023,7 +1023,7 @@ static int netdev_imsfioctl(FAR struct socket *sock, int cmd, FAR struct ip_msfi
  ****************************************************************************/
 
 #ifdef CONFIG_NET_ROUTE
-static int netdev_rtioctl(FAR struct socket *sock, int cmd, FAR struct rtentry *rtentry)
+static int netdev_rtioctl(int cmd, FAR struct rtentry *rtentry)
 {
 	int ret = -EAFNOSUPPORT;
 
@@ -1097,6 +1097,7 @@ static struct addrinfo *copy_addrinfo(struct addrinfo *src)
 	struct addrinfo *tmp = src;
 	struct addrinfo *prev = NULL;
 	struct addrinfo *root = NULL;
+	int canonname_len = 0;
 	while (tmp) {
 		struct addrinfo *dst = NULL;
 		dst = (struct addrinfo *)kumm_malloc(sizeof(struct addrinfo));
@@ -1116,17 +1117,19 @@ static struct addrinfo *copy_addrinfo(struct addrinfo *src)
 			kumm_free(dst);
 			break;
 		}
+
 		memcpy(dst->ai_addr, tmp->ai_addr, sizeof(struct sockaddr));
 
 		if (tmp->ai_canonname) {
-			dst->ai_canonname = (char *)kumm_malloc(sizeof(tmp->ai_canonname));
+			canonname_len = strlen(tmp->ai_canonname) + 1;
+			dst->ai_canonname = (char *)kumm_malloc(canonname_len);
 			if (!dst->ai_canonname) {
 				ndbg("copy_addrinfo() kumm_malloc failed\n");
 				kumm_free(dst->ai_addr);
 				kumm_free(dst);
 				break;
 			}
-			memcpy(dst->ai_canonname, tmp->ai_canonname, sizeof(tmp->ai_canonname));
+			memcpy(dst->ai_canonname, tmp->ai_canonname, canonname_len);
 		} else {
 			dst->ai_canonname = NULL;
 		}
@@ -1193,11 +1196,6 @@ static void _dhcpd_join(dhcp_evt_type_e type, void *data)
 	return;
 }
 
-extern int netdev_dhcp_client_start(const char *intf);
-extern void netdev_dhcp_client_stop(const char *intf);
-extern int netdev_dhcp_server_status(char *intf);
-extern int netdev_dhcp_server_start(char *intf, dhcp_sta_joined dhcp_join_cb);
-extern int netdev_dhcp_server_stop(char *intf);
 #endif
 
 /****************************************************************************
@@ -1207,6 +1205,7 @@ extern int netdev_dhcp_server_stop(char *intf);
  *   Call lwip API
  *
  * Parameters:
+ *   s        Descriptor of device
  *   cmd      The ioctl command
  *   arg      Type of the information to get
  *
@@ -1214,9 +1213,14 @@ extern int netdev_dhcp_server_stop(char *intf);
  *   0 on success, negated errno on failure.
  *
  ****************************************************************************/
-int lwip_func_ioctl(int cmd, void *arg)
+int lwip_func_ioctl(int s, int cmd, void *arg)
 {
 	int ret = -EINVAL;
+	struct lwip_sock *sock = get_socket(s);
+	if (!sock) {
+		ret = -EBADF;
+		return ret;
+	}
 	struct req_lwip_data *in_arg = (struct req_lwip_data *)arg;
 	if (!in_arg) {
 		return ret;
@@ -1276,7 +1280,7 @@ int lwip_func_ioctl(int cmd, void *arg)
 #if defined(CONFIG_NET_LWIP_DHCP)
 #if defined(CONFIG_LWIP_DHCPC)
 	case DHCPCSTART:
-		in_arg->req_res = netdev_dhcp_client_start((const char *)in_arg->host_name);
+		in_arg->req_res = netdev_dhcp_client_start((const char *)in_arg->intf);
 		if (in_arg->req_res != 0) {
 			ret = -EINVAL;
 			ndbg("start dhcp fail\n");
@@ -1285,14 +1289,14 @@ int lwip_func_ioctl(int cmd, void *arg)
 		}
 		break;
 	case DHCPCSTOP:
-		netdev_dhcp_client_stop((const char *)in_arg->host_name);
+		netdev_dhcp_client_stop((const char *)in_arg->intf);
 		in_arg->req_res = 0;
 		ret = OK;
 		break;
 #endif
 #if defined(CONFIG_LWIP_DHCPS)
 	case DHCPDSTART:
-		in_arg->req_res = netdev_dhcp_server_start((char *)in_arg->host_name, _dhcpd_join);
+		in_arg->req_res = netdev_dhcp_server_start((char *)in_arg->intf, _dhcpd_join);
 		if (in_arg->req_res != 0) {
 			ret = -EINVAL;
 			ndbg("start dhcpd fail\n");
@@ -1301,7 +1305,7 @@ int lwip_func_ioctl(int cmd, void *arg)
 		}
 		break;
 	case DHCPDSTOP:
-		in_arg->req_res = netdev_dhcp_server_stop((char *)in_arg->host_name);
+		in_arg->req_res = netdev_dhcp_server_stop((char *)in_arg->intf);
 		if (in_arg->req_res != 0) {
 			ret = -EINVAL;
 			ndbg("stop dhcpd fail\n");
@@ -1310,7 +1314,7 @@ int lwip_func_ioctl(int cmd, void *arg)
 		}
 		break;
 	case DHCPDSTATUS:
-		in_arg->req_res = netdev_dhcp_server_status((char *)in_arg->host_name);
+		in_arg->req_res = netdev_dhcp_server_status((char *)in_arg->intf);
 		if (in_arg->req_res != 0) {
 			ret = -EINVAL;
 			ndbg("stop dhcpd fail\n");
@@ -1355,7 +1359,7 @@ int lwipioctl(int sockfd, int cmd, void *arg)
 			return -get_errno();
 		}
 	} else if (cmd == SIOCLWIP) {
-		return lwip_func_ioctl(cmd, arg);
+		return lwip_func_ioctl(sockfd, cmd, arg);
 	}
 
 	return ret;
@@ -1397,9 +1401,9 @@ int lwipioctl(int sockfd, int cmd, void *arg)
  *
  ****************************************************************************/
 
-int netdev_ioctl(int sockfd, int cmd, unsigned long arg)
+int net_ioctl(int sockfd, int cmd, unsigned long arg)
 {
-	FAR struct socket *sock = NULL;
+	/* FAR struct lwip_sock *sock = NULL; */
 	int ret = -ENOTTY;
 
 	/* Check if this is a valid command.  In all cases, arg is a pointer that has
@@ -1413,34 +1417,37 @@ int netdev_ioctl(int sockfd, int cmd, unsigned long arg)
 	}
 
 	/* Verify that the sockfd corresponds to valid, allocated socket */
+    /*  I am confused if sockfd were invalid then the request couldn't be reach here */
+	/*  So checking validation of socket would be unneccessary */
+	/* sock = get_socket(sockfd); */
 
-	sock = get_socket(sockfd);
-
+	/*
 	if (NULL == sock) {
 		ret = -EBADF;
 		goto errout;
 	}
+	*/
 
 	/* Execute the command */
 #ifdef CONFIG_NET_LWIP
 	ret = lwipioctl(sockfd, cmd, (void *)((uintptr_t)arg));
 #endif
 	if (ret == -ENOTTY) {
-		ret = netdev_ifrioctl(sock, cmd, (FAR struct ifreq *)((uintptr_t)arg));
+		ret = netdev_ifrioctl(cmd, (FAR struct ifreq *)((uintptr_t)arg));
 	}
 #ifdef CONFIG_NET_NETMON
 	if (ret == -ENOTTY) {
-		ret = netdev_nmioctl(sock, cmd, (void *)((uintptr_t)arg));
+		ret = netdev_nmioctl(cmd, (void *)((uintptr_t)arg));
 	}
 #endif                          /* CONFIG_NET_NETMON */
 #ifdef CONFIG_NET_IGMP
 	if (ret == -ENOTTY) {
-		ret = netdev_imsfioctl(sock, cmd, (FAR struct ip_msfilter *)((uintptr_t)arg));
+		ret = netdev_imsfioctl(cmd, (FAR struct ip_msfilter *)((uintptr_t)arg));
 	}
 #endif							/* CONFIG_NET_IGMP */
 #ifdef CONFIG_NET_ROUTE
 	if (ret == -ENOTTY) {
-		ret = netdev_rtioctl(sock, cmd, (FAR struct rtentry *)((uintptr_t)arg));
+		ret = netdev_rtioctl(cmd, (FAR struct rtentry *)((uintptr_t)arg));
 	}
 #endif							/* CONFIG_NET_ROUTE */
 

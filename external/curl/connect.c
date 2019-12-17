@@ -28,7 +28,7 @@
 #ifdef HAVE_SYS_UN_H
 #include <sys/un.h> /* for sockaddr_un */
 #endif
-#include <net/lwip/tcp.h>
+#include "lwip/tcp.h"
 #ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
 #endif
@@ -661,7 +661,7 @@ static bool getaddressinfo(struct sockaddr *sa, char *addr,
 
   addr[0] = '\0';
   *port = 0;
-  errno = EAFNOSUPPORT;
+  set_errno(EAFNOSUPPORT);
   return FALSE;
 }
 

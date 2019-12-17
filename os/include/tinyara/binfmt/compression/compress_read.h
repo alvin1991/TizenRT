@@ -28,23 +28,15 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define CUTOFF_RATIO_CACHE_BLOCKS 0.1f	/* Max. Ratio of blocks to be used for caching
-					 * to total number of compressed blocks in binary */
-
 /****************************************************************************
  * Public Types
  ****************************************************************************/
 
-/* Struct for output buffers to cache uncompressed blocks */
-struct block_cache_s {
-	unsigned char *out_buffer;			/* Buffer that is going to hold uncompressed data */
-	int block_number;			/* Block number in compressed file for the cached block */
-	unsigned int no_requests_for_block;	/* Number of requests for current block that is cached */
-	unsigned int index_block_cache;		/* Index of block cache in the array */
-	struct block_cache_s *next;		/* Pointer to next element in doubly linked list */
-	struct block_cache_s *prev;		/* Pointer to previous element in doubly linked list */
+/* Struct for buffers to be used for read/decompression */
+struct s_buffer {
+	unsigned char *read_buffer;
+	unsigned char *out_buffer;
 };
-typedef struct block_cache_s block_cache_t;
 
 /****************************************************************************
  * Function Prototypes
@@ -87,5 +79,13 @@ int compress_init(int filfd, uint16_t offset, off_t *filelen);
  *   Negative value on failure
  ****************************************************************************/
 int compress_read(int filfd, uint16_t binary_header_size, FAR uint8_t *buffer, size_t readsize, off_t offset);
+
+/****************************************************************************
+ * Name: get_compression_header
+ *
+ * Returned Value:
+ *   Address of the compression_header
+ ****************************************************************************/
+struct s_header *get_compression_header(void);
 
 #endif							/* __INCLUDE_COMPRESS_READ_H */

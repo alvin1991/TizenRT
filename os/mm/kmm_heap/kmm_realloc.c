@@ -71,6 +71,37 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+/************************************************************************
+ * Name: kmm_realloc_at
+ *
+ * Description:
+ *   realloc to the specific kernel heap.
+ *   kmm_realloc_at tries to allocate memory for a specific kernel heap
+ *  which passed by api argument.
+ *   If there is no enough space to allocate, it will return NULL.
+ *
+ * Return Value:
+ *   The address of the allocated memory (NULL on failure to allocate)
+ *
+ ************************************************************************/
+#if CONFIG_KMM_NHEAPS > 1
+void *kmm_realloc_at(int heap_index, void *oldmem, size_t size)
+{
+	struct mm_heap_s *kheap;
+	if (heap_index >= CONFIG_KMM_NHEAPS || heap_index < 0) {
+		mdbg("kmm_realloc_at failed. Wrong heap index (%d) of (%d)\n", heap_index, CONFIG_KMM_NHEAPS);
+		return NULL;
+	}
+
+	kheap = kmm_get_heap();
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+	ARCH_GET_RET_ADDRESS
+	return mm_realloc(&kheap[heap_index], oldmem, size, retaddr);
+#else
+	return mm_realloc(&kheap[heap_index], oldmem, size);
+#endif
+}
+#endif
 
 /****************************************************************************
  * Name: kmm_realloc
@@ -89,11 +120,33 @@
 
 FAR void *kmm_realloc(FAR void *oldmem, size_t newsize)
 {
+	void *ret;
+	int kheap_idx;
+	struct mm_heap_s *kheap_origin = mm_get_heap(oldmem);
+	struct mm_heap_s *kheap_new;
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-	return mm_realloc(&g_kmmheap, oldmem, newsize, __builtin_return_address(0));
+	ret = mm_realloc(kheap_origin, oldmem, newsize, __builtin_return_address(0));
 #else
-	return mm_realloc(&g_kmmheap, oldmem, newsize);
+	ret = mm_realloc(kheap_origin, oldmem, newsize);
 #endif
+	if (ret != NULL) {
+		return ret;
+	}
+
+	/* Try to mm_malloc to another heap. */
+	kheap_new = kmm_get_heap();
+	for (kheap_idx = 0; kheap_idx < CONFIG_KMM_NHEAPS; kheap_idx++) {
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+		ret = mm_malloc(&kheap_new[kheap_idx], newsize, __builtin_return_address(0));
+#else
+		ret = mm_malloc(&kheap_new[kheap_idx], newsize);
+#endif
+		if (ret != NULL) {
+			kmm_free(oldmem);
+			return ret;
+		}
+	}
+	return NULL;
 }
 
 #endif							/* CONFIG_MM_KERNEL_HEAP */

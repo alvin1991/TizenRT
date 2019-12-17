@@ -65,6 +65,11 @@
 #include <tinyara/sched.h>
 #include <tinyara/ttrace.h>
 
+#ifdef CONFIG_PREFERENCE
+#include <tinyara/preference.h>
+#include "preference/preference.h"
+#endif
+
 #ifdef CONFIG_MESSAGING_IPC
 #include <sys/types.h>
 #include <messaging/messaging.h>
@@ -72,6 +77,10 @@
 #endif
 #include "sched/sched.h"
 #include "task/task.h"
+
+#ifdef CONFIG_TASK_MONITOR
+#include "task_monitor/task_monitor_internal.h"
+#endif
 
 /************************************************************************
  * Private Functions
@@ -194,10 +203,12 @@ int prctl(int option, ...)
 		int ret;
 		ret = messaging_read_list(port_name, recv_arr, &total_cnt);
 		if (ret == ERROR) {
+			va_end(ap);
 			return ret;
 		}
 		curr_cnt += ret;
 		*recv_cnt = curr_cnt;
+		va_end(ap);
 		if (curr_cnt == total_cnt) {
 			/* Read whole receivers information. */
 			curr_cnt = 0;
@@ -212,6 +223,7 @@ int prctl(int option, ...)
 		int ret;
 		char *port_name = va_arg(ap, char *);
 		ret = messaging_remove_list(port_name);
+		va_end(ap);
 		return ret;
 	}
 	break;
@@ -237,6 +249,105 @@ int prctl(int option, ...)
 #endif
 	}
 	break;
+#ifdef CONFIG_TASK_MONITOR
+	case PR_MONITOR_REGISTER:
+	{
+		int interval = va_arg(ap, int);
+		int ret;
+		ret = task_monitor_register_list(getpid(), interval);
+		if (ret < 0) {
+			err = ret;
+			goto errout;
+		}
+	}
+	break;
+	case PR_MONITOR_UPDATE:
+	{
+		struct tcb_s *tcb;
+		tcb = sched_gettcb(getpid());
+		if (tcb == NULL) {
+			sdbg("Fail to update the status in task monitor.\n");
+			goto errout;
+		}
+		tcb->is_active = true;
+	}
+	break;
+#endif
+#ifdef CONFIG_PREFERENCE
+	case PR_SET_PREFERENCE:
+	{
+		int ret;
+		preference_data_t *data;
+		data = va_arg(ap, preference_data_t *);
+		ret = preference_write_key(data);
+		va_end(ap);
+		return ret;
+	}
+	case PR_GET_PREFERENCE:
+	{
+		int ret;
+		preference_data_t *data;
+		data = va_arg(ap, preference_data_t *);
+		ret = preference_read_key(data);
+		va_end(ap);
+		return ret;
+	}
+	case PR_REMOVE_PREFERENCE:
+	{
+		int ret;
+		int type;
+		char *key;
+		type = va_arg(ap, int);
+		key = va_arg(ap, char *);
+		ret = preference_remove_key(type, key);
+		va_end(ap);
+		return ret;
+	}
+	case PR_REMOVEALL_PREFERENCE:
+	{
+		int ret;
+		int type;
+		char *path;
+		type = va_arg(ap, int);
+		path = va_arg(ap, char *);
+		ret = preference_remove_all_key(type, path);
+		va_end(ap);
+		return ret;
+	}
+	case PR_CHECK_PREFERENCE:
+	{
+		int ret;
+		int type;
+		char *key;
+		bool *result;
+		type = va_arg(ap, int);
+		key = va_arg(ap, char *);
+		result = va_arg(ap, bool *);
+		ret = preference_check_key(type, key, result);
+		va_end(ap);
+		return ret;
+	}
+	case PR_SET_PREFERENCE_CB:
+	{
+		int ret;
+		preference_callback_t *data;
+		data = va_arg(ap, preference_callback_t *);
+		ret = preference_register_callback(data);
+		va_end(ap);
+		return ret;
+	}
+	case PR_UNSET_PREFERENCE_CB:
+	{
+		int ret;
+		char *key;
+		int type;
+		type = va_arg(ap, int);
+		key = va_arg(ap, char *);
+		ret = preference_unregister_callback(key, type);
+		va_end(ap);
+		return ret;
+	}
+#endif
 	default:
 		sdbg("Unrecognized option: %d\n", option);
 		err = EINVAL;

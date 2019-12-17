@@ -68,14 +68,25 @@
  ****************************************************************************/
 
 #include <tinyara/config.h>
+#ifndef NXFUSE_HOST_BUILD
 #include <tinyara/compiler.h>
 #include <tinyara/logm.h>
+#endif
 
 #include <syslog.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+#ifdef NXFUSE_HOST_BUILD
+#define FAR
+#define DEBUGASSERT(x)
+#define ASSERT(x) DEBUGASSERT(x)
+#define OK    0
+#define ERROR 1
+
+int get_errno(void);
+#endif
 
 /* Debug macros to runtime filter the debug messages sent to the console.  In
  * general, there are four forms of the debug macros:
@@ -293,19 +304,35 @@
 #ifdef CONFIG_DEBUG_BINFMT_ERROR
 #  define berr(format, ...)     dbg(format, ##__VA_ARGS__)
 #else
-#  define berr(x...)
+#  define berr(...)
 #endif
 
 #ifdef CONFIG_DEBUG_BINFMT_WARN
 #  define bwarn(format, ...)   wdbg(format, ##__VA_ARGS__)
 #else
-#  define bwarn(x...)
+#  define bwarn(...)
 #endif
 
 #ifdef CONFIG_DEBUG_BINFMT_INFO
 #  define binfo(format, ...)   vdbg(format, ##__VA_ARGS__)
 #else
-#  define binfo(x...)
+#  define binfo(...)
+#endif
+
+#ifdef CONFIG_DEBUG_BINARY_COMPRESSION_ERROR
+#define bcmpdbg(format, ...)    dbg(format, ##__VA_ARGS__)
+#define bcmplldbg(format, ...)  lldbg(format, ##__VA_ARGS__)
+#else
+#define bcmpdbg(...)
+#define bcmplldbg(...)
+#endif
+
+#ifdef CONFIG_DEBUG_BINARY_COMPRESSION_INFO
+#define bcmpvdbg(format, ...)   vdbg(format, ##__VA_ARGS__)
+#define bcmpllvdbg(format, ...)  llvdbg(format, ##__VA_ARGS__)
+#else
+#define bcmpvdbg(...)
+#define bcmpllvdbg(...)
 #endif
 
 #ifdef CONFIG_DEBUG_BINMGR_ERROR
@@ -592,6 +619,22 @@
 #else	
 #define msgdbg(...)	
 #define msglldbg(...)	
+#endif
+
+#ifdef CONFIG_DEBUG_PREFERENCE_ERROR
+#define prefdbg(format, ...)      dbg(format, ##__VA_ARGS__)
+#define preflldbg(format, ...)    lldbg(format, ##__VA_ARGS__)
+#else
+#define prefdbg(...)
+#define preflldbg(...)
+#endif
+
+#ifdef CONFIG_DEBUG_PREFERENCE_INFO
+#define prefvdbg(format, ...)     vdbg(format, ##__VA_ARGS__)
+#define prefllvdbg(format, ...)   llvdbg(format, ##__VA_ARGS__)
+#else
+#define prefvdbg(...)
+#define prefllvdbg(...)
 #endif
 
 #ifdef CONFIG_DEBUG_SECURITY_FRAMEWORK_ERROR
@@ -959,6 +1002,30 @@
 #define ibvdbg(...)
 #endif
 
+#ifdef CONFIG_DEBUG_VIDEO_ERROR
+#define videodbg(format, ...)   dbg(format, ##__VA_ARGS__)
+#define videovdbg(format, ...)  vdbg(format, ##__VA_ARGS__)
+#else
+#define videodbg(...)
+#define videovdbg(...)
+#endif
+
+#ifdef CONFIG_DEBUG_VIDEO_WARN
+#define videowdbg(format, ...)  dbg(format, ##__VA_ARGS__)
+#define videowvdbg(format, ...) vdbg(format, ##__VA_ARGS__)
+#else
+#define videowdbg(...)
+#define videowvdbg(...)
+#endif
+
+#ifdef CONFIG_DEBUG_VIDEO_INFO
+#define videoidbg(format, ...)  dbg(format, ##__VA_ARGS__)
+#define videoivdbg(format, ...) vdbg(format, ##__VA_ARGS__)
+#else
+#define videoidbg(...)
+#define videoivdbg(...)
+#endif
+
 #else							/* CONFIG_CPP_HAVE_VARARGS */
 
 /* Variadic macros NOT supported */
@@ -1026,6 +1093,22 @@
 #define audllvdbg   (void)
 #endif
 
+#ifdef CONFIG_DEBUG_BINARY_COMPRESSION_ERROR
+#define bcmpdbg     dbg
+#define bcmplldbg   lldbg
+#else
+#define bcmpdbg     (void)
+#define bcmplldbg   (void)
+#endif
+
+#ifdef CONFIG_DEBUG_BINARY_COMPRESSION_INFO
+#define bcmpvdbg    vdbg
+#define bcmpllvdbg  llvdbg
+#else
+#define bcmpvdbg    (void)
+#define bcmpllvdbg  (void)
+#endif
+
 #ifdef CONFIG_DEBUG_BINFMT_ERROR
 #define berr  dbg
 #else
@@ -1086,9 +1169,11 @@
 
 #ifdef CONFIG_DEBUG_FS_INFO
 #define fvdbg       vdbg
+#define fsdbg       dbg_noarg
 #define fllvdbg     llvdbg
 #else
 #define fvdbg       (void)
+#define fsdbg       (void)
 #define fllvdbg     (void)
 #endif
 
@@ -1254,6 +1339,22 @@
 #else	
 #define msgdbg       (void)	
 #define msglldbg     (void)	
+#endif
+
+#ifdef CONFIG_DEBUG_PREFERENCE_ERROR
+#define prefdbg      dbg
+#define preflldbg    lldbg
+#else
+#define prefdbg      (void)
+#define preflldbg    (void)
+#endif
+
+#ifdef CONFIG_DEBUG_PREFERENCE_INFO
+#define prefvdbg     vdbg
+#define prefllvdbg   llvdbg
+#else
+#define prefvdbg     (void)
+#define prefllvdbg   (void)
 #endif
 
 #ifdef CONFIG_DEBUG_SECURITY_FRAMEWORK_ERROR
@@ -1542,6 +1643,30 @@
 #else
 #define ibdbg		(void)
 #define ibvdbg		(void)
+#endif
+
+#ifdef CONFIG_DEBUG_VIDEO_ERROR
+#define videodbg     dbg
+#define videovdbg    vdbg
+#else
+#define videodbg     (void)
+#define videovdbg    (void)
+#endif
+
+#ifdef CONFIG_DEBUG_VIDEO_WARN
+#define videowdbg     dbg
+#define videowvdbg    vdbg
+#else
+#define videowdbg     (void)
+#define videowvdbg    (void)
+#endif
+
+#ifdef CONFIG_DEBUG_VIDEO_INFO
+#define videoidbg     dbg
+#define videoivdbg    vdbg
+#else
+#define videoidbg     (void)
+#define videoivdbg    (void)
 #endif
 
 #endif							/* CONFIG_CPP_HAVE_VARARGS */

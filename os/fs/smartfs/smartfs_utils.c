@@ -1276,7 +1276,7 @@ int smartfs_createentry(struct smartfs_mountpt_s *fs, uint16_t parentdirsector, 
 	readwrite.logsector = psector;
 	readwrite.offset = offset;
 	readwrite.count = entrysize;
-	readwrite.buffer = (uint8_t *) &fs->fs_rwbuffer[offset];
+	readwrite.buffer = (uint8_t *)&fs->fs_rwbuffer[offset];
 	ret = FS_IOCTL(fs, BIOC_WRITESECT, (unsigned long) &readwrite);
 	if (ret < 0) {
 		fdbg("failed to write new entry to parent directory psector : %d\n", psector);
@@ -1762,7 +1762,6 @@ int smartfs_examine_sector(struct smartfs_mountpt_s *fs, char *validsectors, int
 			readwrite.count = fs->fs_llformat.availbytes;
 			ret = FS_IOCTL(fs, BIOC_READSECT, (unsigned long)&readwrite);
 			if (ret < 0) {
-				ret = -EINVAL_SECTOR;
 				fdbg("Error %d reading sector %d data\n", ret, logsector);
 				goto errout;
 			}
@@ -1829,7 +1828,7 @@ errout:
 /****************************************************************************
  * Name: smartfs_recover
  *
- * Description: Recovery after  a power failure
+ * Description: Recover sector which has broken link after a power failure
  *
  ****************************************************************************/
 int smartfs_recover(struct smartfs_mountpt_s *fs)

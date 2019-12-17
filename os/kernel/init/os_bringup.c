@@ -69,8 +69,14 @@
 #include <tinyara/kthread.h>
 #include <tinyara/userspace.h>
 #include <tinyara/net/net.h>
+#ifdef CONFIG_SCHED_WORKQUEUE
+#include <tinyara/wqueue.h>
+#endif
 #ifdef CONFIG_LOGM
 #include <tinyara/logm.h>
+#endif
+#ifdef CONFIG_SCHED_CPULOAD
+#include <tinyara/cpuload.h>
 #endif
 #ifdef CONFIG_ENABLE_HEAPINFO
 #include <tinyara/heapinfo_drv.h>
@@ -78,13 +84,18 @@
 #ifdef CONFIG_TASK_MANAGER
 #include <tinyara/task_manager_drv.h>
 #endif
-#include "wqueue/wqueue.h"
 #include "init/init.h"
 #ifdef CONFIG_PAGING
 #include "paging/paging.h"
 #endif
 #ifdef CONFIG_BINARY_MANAGER
 #include "binary_manager/binary_manager.h"
+#endif
+#ifdef CONFIG_TASK_MONITOR
+#include "task_monitor/task_monitor_internal.h"
+#endif
+#ifdef CONFIG_MESSAGING_IPC
+#include "messaging/message_ctrl.h"
 #endif
 
 /****************************************************************************
@@ -256,8 +267,23 @@ static inline void os_do_appstart(void)
 	net_initialize();
 #endif
 
+#ifdef CONFIG_SCHED_CPULOAD
+	cpuload_initialize();
+#endif
+
 #ifdef CONFIG_TASK_MANAGER
 	task_manager_drv_register();
+#endif
+
+#ifdef CONFIG_MESSAGING_IPC
+	messaging_initialize();
+#endif
+
+#ifdef CONFIG_TASK_MONITOR
+	pid = kernel_thread("taskmonitor", CONFIG_TASK_MONITOR_PRIORITY, 1024, task_monitor, (FAR char *const *)NULL);
+	if (pid < 0) {
+		sdbg("Failed to start task monitor\n");
+	}
 #endif
 
 #if defined(CONFIG_SYSTEM_PREAPP_INIT) && !defined(CONFIG_APP_BINARY_SEPARATION)
@@ -441,10 +467,6 @@ int os_bringup(void)
 
 #ifdef CONFIG_LOGM
 	logm_start();
-#endif
-
-#if !defined(CONFIG_BUILD_KERNEL) && defined(CONFIG_HAVE_CXXINITIALIZE)
-	up_cxxinitialize();
 #endif
 
 	/* Once the operating system has been initialized, the system must be

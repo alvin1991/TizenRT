@@ -624,6 +624,9 @@ struct tcb_s {
 #if CONFIG_TASK_NAME_SIZE > 0
 	char name[CONFIG_TASK_NAME_SIZE + 1];	/* Task name (with NUL terminator)     */
 #endif
+#ifdef CONFIG_TASK_MONITOR
+	bool is_active;
+#endif
 };
 
 /* struct task_tcb_s *************************************************************/
@@ -824,6 +827,12 @@ FAR struct streamlist *sched_getstreams(void);
 #if CONFIG_NSOCKET_DESCRIPTORS > 0
 FAR struct socketlist *sched_getsockets(void);
 #endif							/* CONFIG_NSOCKET_DESCRIPTORS */
+
+#ifdef CONFIG_SCHED_CPULOAD
+int sched_start_cpuload_snapshot(int ticks);
+void sched_clear_cpuload_snapshot(void);
+void sched_get_cpuload_snapshot(pid_t *result_addr);
+#endif
 
 /********************************************************************************
  * Name: task_starthook

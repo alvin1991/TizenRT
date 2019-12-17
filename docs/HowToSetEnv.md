@@ -1,17 +1,26 @@
 # Manual Setup Build Environment
-## Getting the toolchain
+This document describes the steps involved in setting up the build environment.
 
-Install the OS specific toolchain. Supported OS Type's are "linux" and "mac".  
-Get the build in binaries and libraries, [gcc-arm-none-eabi-6-2017-q1-update-*OS Type*.tar.bz2](https://developer.arm.com/open-source/gnu-toolchain/gnu-rm/downloads/6-2017-q1-update)  
-Untar the gcc-arm-none-eabi-6-2017-q1-update-*OS Type*.tar.bz2 and export the path like
+## Contents
+- [Get the toolchain](#get-the-toolchain)
+- [Get the source code](#get-the-source-code)
+- [How to Build](#how-to-build)
+- [Configuration Sets](#configuration-sets)
+
+## Get the toolchain
+
+Install the OS specific toolchain. Supported OS types are "linux" and "mac".  
+Get the binaries and libraries from [gcc-arm-none-eabi-6-2017-q1-update-*OS Type*.tar.bz2](https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm/downloads) to build.
+Unzip the gcc-arm-none-eabi-6-2017-q1-update-*OS Type*.tar.bz2 and export the path as shown below:
 
 ```bash
 tar xvjf gcc-arm-none-eabi-6-2017-q1-update-[OS Type].tar.bz2
 export PATH=<Your Toolchain PATH>:$PATH
 ```
-Be aware that recommended toolchain is fully working on 64bits machine.
+> **Note**
+> The recommended toolchain is fully working on 64 bit machines.
 
-## Getting the source code
+## Get the source code
 
 ```bash
 git clone https://github.com/Samsung/TizenRT.git
@@ -26,8 +35,7 @@ Configure the build from *$TIZENRT_BASEDIR/os/tools* directory
 cd os/tools
 ./configure.sh <board>/<configuration_set>
 ```
-The configuration file is named *defconfig*,  
-and resides under the relative path \<board\>/\<configuration_set\> rooted at *build/configs*.  
+The configuration file is named *defconfig*, and resides under the relative path \<board\>/\<configuration_set\> rooted at *build/configs*.  
 To check the different \<board\>/\<configuration_set\> combinations supported, type below:
 ```bash
 ./configure.sh --help

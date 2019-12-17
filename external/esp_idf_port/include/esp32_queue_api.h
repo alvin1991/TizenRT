@@ -32,6 +32,7 @@ int32_t queue_send_to_front_wrapper(void *queue, void *item, uint32_t block_time
 int32_t queue_recv_wrapper(void *queue, void *item, uint32_t block_time_tick);
 int32_t queue_recv_from_isr_wrapper(void *queue, void *item, int32_t * const hptw);
 uint32_t queue_msg_waiting_wrapper(void *queue);
+int32_t queue_reset_wrapper(void *queue);
 
 #ifdef __cplusplus
 }

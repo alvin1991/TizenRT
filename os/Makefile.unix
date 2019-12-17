@@ -231,7 +231,7 @@ BIN = $(OUTBIN_DIR)/$(BIN_EXE)
 memstat: $(BIN) romfs
 
 all: memstat
-.PHONY: context clean_context check_context config oldconfig menuconfig nconfig qconfig gconfig export subdir_clean clean subdir_distclean distclean apps_clean apps_distclean force_build applist appupdate
+.PHONY: context clean_context check_context config oldconfig menuconfig nconfig qconfig gconfig export subdir_clean clean subdir_distclean distclean apps_clean apps_distclean force_build applist appupdate smartfs
 
 # Target used to copy include/tinyara/math.h.  If CONFIG_ARCH_MATH_H is
 # defined, then there is an architecture specific math.h header file
@@ -300,7 +300,7 @@ tools/mkversion$(HOSTEXEEXT):
 
 $(TOPDIR)/.version: force_build
 	echo "create .version file"; \
-	tools/version.sh -v 2.0 .version; \
+	tools/version.sh -v 3.0 .version; \
 	chmod 755 .version
 
 include/tinyara/version.h: $(TOPDIR)/.version tools/mkversion$(HOSTEXEEXT)
@@ -385,10 +385,10 @@ context: check_context include/tinyara/config.h include/tinyara/version.h includ
 		echo "Previous Build Outputs - $(OUTBIN_DIR) - are deleted"; \
 		rm -rf ${OUTBIN_DIR}/*; \
 	fi
+	$(call DELFILE, $(APPDIR)/builtin/registry/*.?dat)
 	$(Q) for dir in $(CONTEXTDIRS) ; do \
 		$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" context; \
 	done
-	$(call DELFILE, $(APPDIR)/builtin/registry/*.?dat)
 	$(Q) ./tools/mkldscript.sh
 
 # clean_context
@@ -457,7 +457,7 @@ ifeq ($(CONFIG_BUILD_2PASS),y)
 	fi
 	$(call DELFILE, $(PASS1_BUILDIR)/up_userspace.o)
 	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" LINKLIBS="$(LINKLIBS)" USERLIBS="$(USERLIBS)" "$(CONFIG_PASS1_TARGET)"
-	$(Q) $(MAKE) -C $(LOADABLE_APPDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" LIBRARIES_DIR="$(LIBRARIES_DIR)" USERLIBS="$(USERLIBS)" all KERNEL=n
+	$(Q) $(MAKE) -C $(LOADABLE_APPDIR) TOPDIR="$(TOPDIR)" LOADABLEDIR="${LOADABLE_APPDIR}" LIBRARIES_DIR="$(LIBRARIES_DIR)" USERLIBS="$(USERLIBS)" all KERNEL=n
 endif
 
 pass2deps: pass2dep $(TINYARALIBS)
@@ -493,9 +493,9 @@ ifeq ($(CONFIG_UBOOT_UIMAGE),y)
 	fi
 endif
 ifeq ($(CONFIG_DEBUG_DISPLAY_SYMBOL),y)
-	cp ${OUTBIN_DIR}/System.map ${TOOLSDIR}/fs/contents/System.map
+	cp ${OUTBIN_DIR}/System.map ${TOOLSDIR}/fs/contents-romfs/System.map
 else
-	$(call DELFILE, ${TOOLSDIR}/fs/contents/System.map)
+	$(call DELFILE, ${TOOLSDIR}/fs/contents-romfs/System.map)
 endif
 
 # $(BIN)
@@ -600,12 +600,12 @@ depend: pass1dep pass2dep
 subdir_clean:
 	$(Q) for dir in $(CLEANDIRS) ; do \
 		if [ -e $$dir/Makefile ]; then \
-			$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" clean ; \
+			$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" LOADABLEDIR="${LOADABLE_APPDIR}" clean ; \
 		fi \
 	done
 	$(Q) $(MAKE) -C tools -f Makefile.host TOPDIR="$(TOPDIR)" clean
 ifeq ($(CONFIG_BUILD_2PASS),y)
-	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" clean
+	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" LOADABLEDIR="${LOADABLE_APPDIR}" clean
 endif
 
 clean: subdir_clean
@@ -619,7 +619,7 @@ clean: subdir_clean
 subdir_distclean:
 	$(Q) for dir in $(CLEANDIRS) ; do \
 		if [ -e $$dir/Makefile ]; then \
-			$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" distclean ; \
+			$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" LOADABLEDIR="${LOADABLE_APPDIR}" distclean ; \
 		fi \
 	done
 
@@ -688,7 +688,7 @@ endif
 # romfs
 #
 # The romfs target will make a romfs image by calling mkromfsimg.sh.
-# The content of romfs should be in $(TOPDIR)/../tools/fs/contents folder.
+# The content of romfs should be in $(TOPDIR)/../tools/fs/contents-romfs folder.
 
 romfs:
 ifeq ($(CONFIG_FS_ROMFS),y)
@@ -705,3 +705,11 @@ tools/compression/mkcompresstool.sh: include/tinyara/config.h
 ifeq ($(CONFIG_COMPRESSED_BINARY),y)
 	$(Q) tools/compression/mkcompresstool.sh
 endif
+
+# smartfs
+#
+# The smartfs target will make a smartfs image by calling mksmartfsimg.sh and mknxfuse.sh
+# Contents need to be placed in $(TOPDIR)/../tools/fs/contents-smartfs/$BOARDNAME/base-files folder
+smartfs: include/tinyara/config.h
+	$(Q) ./../tools/nxfuse/mknxfuse.sh
+	$(Q) ./../tools/nxfuse/mksmartfsimg.sh

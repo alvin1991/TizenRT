@@ -68,7 +68,9 @@
  ************************************************************************/
 
 #include <tinyara/config.h>
+#ifndef NXFUSE_HOST_BUILD
 #include <tinyara/compiler.h>
+#endif
 
 /************************************************************************
  * Pre-processor Definitions
@@ -405,10 +407,18 @@
 #define EMEDIUMTYPE_STR     "Wrong medium type"
 #define ECANCELED           125
 #define ECANCELED_STR       "Operation cancelled"
-#define EINVAL_SECTOR       126
-#define EINVAL_SECTOR_STR   "Invalid sector"
+#define ENOKEY              126
+#define ENOKEY_STR          "Required key not available"
+#define EKEYEXPIRED         127
+#define EKEYEXPIRED_STR     "Key has expired"
+#define EKEYREVOKED         128
+#define EKEYREVOKED_STR     "Key has been revoked"
+#define EKEYREJECTED        129
+#define EKEYREJECTED_STR    "Key was rejected by service"
 #define EOWNERDEAD          142
 #define EOWNERDEAD_STR      "Previous owner died"
+#define ENOTSUP             252
+#define ENOTSUP_STR         "Not supported"
 
 /************************************************************************
  * Type Declarations

@@ -75,11 +75,10 @@
 #include <arpa/inet.h>
 
 #ifdef CONFIG_NET_LWIP
-#include <net/lwip/inet.h>
+#include "lwip/inet.h"
 #else
 #include <arpa/inet.h>
 #endif
-
 /****************************************************************************
  * Definitions
  ****************************************************************************/
@@ -188,7 +187,7 @@ int dnsclient_main(int argc, FAR char *argv[])
 		return -1;
 	} else {
 		printf("DNS results\n");
-		printf("IP Address : %s\n", ip_ntoa((ip_addr_t *)shost->h_addr_list[0]));
+		printf("IP Address : %s\n", inet_ntoa(*((struct in_addr *)shost->h_addr_list[0])));
 	}
 
 	return 0;

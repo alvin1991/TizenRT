@@ -16,11 +16,12 @@ if COMPRESSED_BINARY
 
 config COMPRESSION_TYPE
 	int "Compression Algorithm Type"
-	default 1
-	range 1 1
+	default 2
+	range 1 2
 	---help---
 		Enter compression type.
 		1 = LZMA
+		2 = MINIZ
 
 config COMPRESSION_BLOCK_SIZE
 	int "Block size for binary compression"
@@ -28,13 +29,5 @@ config COMPRESSION_BLOCK_SIZE
 	range 512 8192
 	---help---
 		Enter block size to use for compression of binary.
-
-config DECOMPRESSION_CACHE_BLOCKS
-	int "Blocks for caching when loading binary"
-	default 60
-	range 2 100
-	---help---
-		Enter number of blocks to use for caching decompressed
-		blocks from block-wise compressed binary when loading
 
 endif # COMPRESSED_BINARY

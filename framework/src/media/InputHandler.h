@@ -19,16 +19,15 @@
 #define __MEDIA_INPUTHANDLER_H
 
 #include <memory>
-
+#include <mutex>
+#include <condition_variable>
 #include <sys/types.h>
 
 #include <media/InputDataSource.h>
-#include <media/BufferObserverInterface.h>
+#include "StreamHandler.h"
 
-#include "StreamBuffer.h"
-#include "StreamBufferReader.h"
-#include "StreamBufferWriter.h"
 #include "Decoder.h"
+#include "Demuxer.h"
 
 namespace media {
 class MediaPlayerImpl;
@@ -41,26 +40,16 @@ typedef enum buffer_state_e : int {
 	BUFFER_STATE_FULL,
 } buffer_state_t;
 
-class InputHandler : public BufferObserverInterface
+class InputHandler : public StreamHandler
 {
 public:
 	InputHandler();
-	virtual ~InputHandler() = default;
 	void setInputDataSource(std::shared_ptr<InputDataSource> source);
 	bool doStandBy();
-	bool open();
-	bool close();
+	bool open() override;
+	bool close() override;
 	ssize_t read(unsigned char *buf, size_t size);
-	bool start();
-	bool stop();
-	void createWorker();
-	void destroyWorker();
-	static void *workerMain(void *arg);
-	void sleepWorker();
-	void wakenWorker();
 
-	std::shared_ptr<StreamBuffer> getStreamBuffer() { return mStreamBuffer; }
-	void setStreamBuffer(std::shared_ptr<StreamBuffer> streamBuffer);
 	void setBufferState(buffer_state_t state);
 
 	virtual void onBufferOverrun() override;
@@ -70,29 +59,34 @@ public:
 	void setPlayer(std::shared_ptr<MediaPlayerImpl> mp) { mPlayer = mp; }
 	std::shared_ptr<MediaPlayerImpl> getPlayer() { return mPlayer.lock(); }
 
+	size_t getAvailSpace();
 	ssize_t writeToStreamBuffer(unsigned char *buf, size_t size);
 
-	bool registerDecoder(audio_type_t audioType, unsigned int channels, unsigned int sampleRate);
-	void unregisterDecoder();
+private:
+	bool probeDataSource() override;
+	bool registerCodec(audio_type_t audioType, unsigned int channels, unsigned int sampleRate) override;
+	void unregisterCodec() override;
 	size_t getDecodeFrames(unsigned char *buf, size_t *size);
 
-	std::shared_ptr<InputDataSource> getInputDataSource() { return mInputDataSource; }
+	void resetWorker() override;
+	void sleepWorker() override;
+	bool processWorker() override;
+	const char *getWorkerName(void) const override { return "InputHandler"; };
+	ssize_t getElementaryStream(unsigned char *buf, size_t size, size_t *used, unsigned char **out, size_t *expect);
+	ssize_t getPCM(unsigned char *buf, size_t size, size_t *used, unsigned char **out, size_t *expect);
+	size_t fetchData(unsigned char *buf, size_t size, size_t *used, unsigned char **out, size_t *expect);
+	ssize_t readFromSource(unsigned char *buf, size_t size);
 
-private:
+	std::mutex mMutex;
+	std::condition_variable mCondv;
+	std::shared_ptr<StreamBuffer> mPreloadBuffer;
 	std::shared_ptr<InputDataSource> mInputDataSource;
 	std::shared_ptr<Decoder> mDecoder;
-	std::shared_ptr<StreamBuffer> mStreamBuffer;
-	std::shared_ptr<StreamBufferReader> mBufferReader;
-	std::shared_ptr<StreamBufferWriter> mBufferWriter;
-	pthread_t mWorker;
-	bool mIsWorkerAlive;
+	std::shared_ptr<Demuxer> mDemuxer;
 	std::weak_ptr<MediaPlayerImpl> mPlayer;
 
 	buffer_state_t mState;
 	size_t mTotalBytes;
-
-	std::mutex mMutex;
-	std::condition_variable mCondv;
 };
 } // namespace stream
 } // namespace media

@@ -82,11 +82,6 @@
  *   is enabled, then the following options can also be used:
  * CONFIG_SCHED_HPWORKPRIORITY - The execution priority of the high-
  *   priority worker thread.  Default: 224
- * CONFIG_SCHED_HPWORKPERIOD - How often the worker thread checks for
- *   work in units of microseconds.  If the high priority worker thread is
- *   performing garbage collection, then the default is 50*1000 (50 MS).
- *   Otherwise, if the lower priority worker thread is performing garbage
- *   collection, the default is 100*1000.
  * CONFIG_SCHED_HPWORKSTACKSIZE - The stack size allocated for the worker
  *   thread.  Default: 2048.
  * CONFIG_SIG_SIGWORK - The signal number that will be used to wake-up
@@ -102,22 +97,16 @@
  *   priority worker thread.  Default: 50
  * CONFIG_SCHED_LPWORKPRIOMAX - The maximum execution priority of the lower
  *   priority worker thread.  Default: 176
- * CONFIG_SCHED_LPWORKPERIOD - How often the lower priority worker thread
- *  checks for work in units of microseconds.  Default: 50*1000 (50 MS).
- * CONFIG_SCHED_LPWORKSTACKSIZE - The stack size allocated for the lower
- *   priority worker thread.  Default: 2048.
  *
  * The user-mode work queue is only available in the protected or kernel
  * builds.  This those configurations, the user-mode work queue provides the
  * same (non-standard) facility for use by applications.
  *
- * CONFIG_LIB_USRWORK. If CONFIG_LIB_USRWORK is also defined then the
+ * CONFIG_SCHED_USRWORK. If CONFIG_SCHED_USRWORK is also defined then the
  *   user-mode work queue will be created.
- * CONFIG_LIB_USRWORKPRIORITY - The minimum execution priority of the lower
+ * CONFIG_SCHED_USRWORKPRIORITY - The minimum execution priority of the lower
  *   priority worker thread.  Default: 100
- * CONFIG_LIB_USRWORKPERIOD - How often the lower priority worker thread
- *  checks for work in units of microseconds.  Default: 100*1000 (100 MS).
- * CONFIG_LIB_USRWORKSTACKSIZE - The stack size allocated for the lower
+ * CONFIG_SCHED_USRWORKSTACKSIZE - The stack size allocated for the lower
  *   priority worker thread.  Default: 2048.
  */
 
@@ -129,11 +118,14 @@
  * building the user-space libraries.
  */
 
-#ifndef __KERNEL__
+#ifdef __KERNEL__
+
+#undef CONFIG_SCHED_USRWORK
+
+#else
 
 #undef CONFIG_SCHED_HPWORK
 #undef CONFIG_SCHED_LPWORK
-#undef CONFIG_SCHED_WORKQUEUE
 
 /* User-space worker threads are not built in a kernel build when we are
  * building the kernel-space libraries (but we still need to know that it
@@ -152,10 +144,10 @@
  * (CONFIG_BUILD_PROTECTED=n && CONFIG_BUILD_KERNEL=n)
  */
 
-#undef CONFIG_LIB_USRWORK
+#undef CONFIG_SCHED_USRWORK
 #endif
 
-#if defined(CONFIG_SCHED_WORKQUEUE) || defined(CONFIG_LIB_USRWORK)
+#ifdef CONFIG_SCHED_WORKQUEUE
 
 /* High priority, kernel work queue configuration ***************************/
 
@@ -163,14 +155,6 @@
 
 #ifndef CONFIG_SCHED_HPWORKPRIORITY
 #define CONFIG_SCHED_HPWORKPRIORITY 224
-#endif
-
-#ifndef CONFIG_SCHED_HPWORKPERIOD
-#ifdef CONFIG_SCHED_LPWORK
-#define CONFIG_SCHED_HPWORKPERIOD (100*1000)	/* 100 milliseconds */
-#else
-#define CONFIG_SCHED_HPWORKPERIOD (50*1000)	/* 50 milliseconds */
-#endif
 #endif
 
 #ifndef CONFIG_SCHED_HPWORKSTACKSIZE
@@ -212,10 +196,6 @@
 #error CONFIG_SCHED_LPWORKPRIORITY > CONFIG_SCHED_LPWORKPRIOMAX
 #endif
 
-#ifndef CONFIG_SCHED_LPWORKPERIOD
-#define CONFIG_SCHED_LPWORKPERIOD (50*1000)	/* 50 milliseconds */
-#endif
-
 #ifndef CONFIG_SCHED_LPWORKSTACKSIZE
 #define CONFIG_SCHED_LPWORKSTACKSIZE CONFIG_IDLETHREAD_STACKSIZE
 #endif
@@ -234,21 +214,17 @@
 
 /* User space work queue configuration **************************************/
 
-#ifdef CONFIG_LIB_USRWORK
+#ifdef CONFIG_SCHED_USRWORK
 
-#ifndef CONFIG_LIB_USRWORKPRIORITY
-#define CONFIG_LIB_USRWORKPRIORITY 100
+#ifndef CONFIG_SCHED_USRWORKPRIORITY
+#define CONFIG_SCHED_USRWORKPRIORITY 100
 #endif
 
-#ifndef CONFIG_LIB_USRWORKPERIOD
-#define CONFIG_LIB_USRWORKPERIOD (100*1000)	/* 100 milliseconds */
+#ifndef CONFIG_SCHED_USRWORKSTACKSIZE
+#define CONFIG_SCHED_USRWORKSTACKSIZE CONFIG_IDLETHREAD_STACKSIZE
 #endif
 
-#ifndef CONFIG_LIB_USRWORKSTACKSIZE
-#define CONFIG_LIB_USRWORKSTACKSIZE CONFIG_IDLETHREAD_STACKSIZE
-#endif
-
-#endif							/* CONFIG_LIB_USRWORK */
+#endif							/* CONFIG_SCHED_USRWORK */
 
 /* Work queue IDs:
  *
@@ -267,7 +243,7 @@
  *     priority work queue (if there is one).
  */
 
-#if defined(CONFIG_LIB_USRWORK) && !defined(__KERNEL__)
+#if defined(CONFIG_SCHED_USRWORK) && !defined(__KERNEL__)
 /* User mode */
 
 #define USRWORK  2				/* User mode work queue */
@@ -285,7 +261,7 @@
 #endif
 #define USRWORK  LPWORK			/* Redirect user-mode references */
 
-#endif							/* CONFIG_LIB_USRWORK && !__KERNEL__ */
+#endif							/* CONFIG_SCHED_USRWORK && !__KERNEL__ */
 
 /****************************************************************************
  * Public Types
@@ -340,8 +316,46 @@ extern "C" {
  *
  ****************************************************************************/
 
-#if defined(CONFIG_LIB_USRWORK) && !defined(__KERNEL__)
+#if defined(CONFIG_SCHED_USRWORK) && !defined(__KERNEL__)
 int work_usrstart(void);
+#endif
+
+/****************************************************************************
+ * Name: work_hpstart
+ *
+ * Description:
+ *   Start the high-priority, kernel-mode work queue.
+ *
+ * Input parameters:
+ *   None
+ *
+ * Returned Value:
+ *   The task ID of the worker thread is returned on success.  A negated
+ *   errno value is returned on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SCHED_HPWORK
+int work_hpstart(void);
+#endif
+
+/****************************************************************************
+ * Name: work_lpstart
+ *
+ * Description:
+ *   Start the low-priority, kernel-mode worker thread(s)
+ *
+ * Input parameters:
+ *   None
+ *
+ * Returned Value:
+ *   The task ID of the worker thread is returned on success.  A negated
+ *   errno value is returned on failure.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SCHED_LPWORK
+int work_lpstart(void);
 #endif
 
 /****************************************************************************
@@ -373,7 +387,7 @@ int work_usrstart(void);
  *
  ****************************************************************************/
 
-int work_queue(int qid, FAR struct work_s *work, worker_t worker, FAR void *arg, uint32_t delay);
+int work_queue(int qid, FAR struct work_s *work, worker_t worker, FAR void *arg, clock_t delay);
 
 /****************************************************************************
  * Name: work_cancel
@@ -480,5 +494,5 @@ void lpwork_restorepriority(uint8_t reqprio);
 #endif
 
 #endif							/* __ASSEMBLY__ */
-#endif							/* CONFIG_SCHED_WORKQUEUE || CONFIG_LIB_USRWORK */
+#endif							/* CONFIG_SCHED_WORKQUEUE */
 #endif							/* __INCLUDE_WQUEUE_H */

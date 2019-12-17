@@ -109,6 +109,31 @@ config DEBUG_BINFMT_INFO
 
 endif # DEBUG_BINFMT
 
+config DEBUG_BINARY_COMPRESSION
+	bool "Binary Compression Debug Features"
+	default n
+	depends on COMPRESSED_BINARY
+	---help---
+		Enable binary compression debug features
+
+if DEBUG_BINARY_COMPRESSION
+
+config DEBUG_BINARY_COMPRESSION_ERROR
+	bool "Enable Error logs of Binary Compression"
+	default n
+	depends on DEBUG_ERROR
+	---help---
+		Enables error logs for Binary Compression interface.
+
+config DEBUG_BINARY_COMPRESSION_INFO
+	bool "Enable Debug logs of Binary Compression"
+	default n
+	depends on DEBUG_VERBOSE
+	---help---
+		Enables debug logs for Binary Compression interface.
+
+endif # DEBUG_BINARY_COMPRESSION
+
 config DEBUG_BINMGR
         bool "Binary Manager Debug Features"
         default n
@@ -457,6 +482,31 @@ config DEBUG_MESSAGING_IPC
 	---help---
 		Enable Messaging debug feature.
 
+config DEBUG_PREFERENCE
+	bool "Preference Debug Output"
+	default n
+	depends on PREFERENCE
+	---help---
+		Preference Debug Output.
+
+if DEBUG_PREFERENCE
+
+config DEBUG_PREFERENCE_ERROR
+	bool "Enable Preference Error Debug Output"
+	default y
+	depends on DEBUG_ERROR
+	---help---
+		Preference Error Debug Output.
+
+config DEBUG_PREFERENCE_INFO
+	bool "Enable Preference Informational Debug Output"
+	default n
+	depends on DEBUG_VERBOSE
+	---help---
+		Preference Informational Debug Output.
+
+endif #DEBUG_PREFERENCE
+
 config DEBUG_ST_THINGS
 	bool "ST Things Debug Feature"
 	default y
@@ -520,6 +570,44 @@ config DEBUG_TASK_MANAGER_INFO
 		Task Manager Informational Debug Output.
 
 endif #DEBUG_TASK_MANAGER
+
+config DEBUG_UI
+	bool "AraUI Debug Feature"
+	default n
+	depends on UI
+	---help---
+		Enable AraUI debug feature.
+
+if DEBUG_UI
+
+config UI_DEBUG_DRAW
+	bool "Draw debug boxes"
+	default n
+	---help---
+		Draw debug boxes
+
+config DEBUG_UI_ERROR
+	bool "UI Error Output"
+	default n
+	depends on DEBUG_ERROR
+	---help---
+		Enable UI error SYSLOG output
+
+config DEBUG_UI_WARN
+	bool "UI Warning Output"
+	default n
+	depends on DEBUG_WARN
+	---help---
+		Enable UI warning SYSLOG output
+
+config DEBUG_UI_INFO
+	bool "UI Informational Output"
+	default n
+	depends on DEBUG_VERBOSE
+	---help---
+		Enable UI informational SYSLOG output
+
+endif #DEBUG_UI
 
 comment "OS Function Debug Options"
 
@@ -805,6 +893,38 @@ config DEBUG_USB_INFO
 
 endif # DEBUG_USB
 
+config DEBUG_VIDEO
+        bool "Video Debug Features"
+        default n
+        depends on VIDEO_SOURCE
+        ---help---
+                Enable Video debug features.
+
+if DEBUG_VIDEO
+
+config DEBUG_VIDEO_ERROR
+        bool "Video Error Output"
+        default n
+        depends on DEBUG_ERROR
+        ---help---
+                Enable Video error output to SYSLOG.
+
+config DEBUG_VIDEO_WARN
+        bool "Video Warnings Output"
+        default n
+        depends on DEBUG_WARN
+        ---help---
+                Enable Video warning output to SYSLOG.
+
+config DEBUG_VIDEO_INFO
+        bool "Video Informational Output"
+        default n
+        depends on DEBUG_VERBOSE
+        ---help---
+                Enable Video informational output to SYSLOG.
+
+endif # DEBUG_VIDEO
+
 config DEBUG_WATCHDOG
 	bool "Watchdog Timer Debug Feature"
 	default n
@@ -907,7 +1027,7 @@ comment "SLSI Wi-Fi API Debug Options"
 config DEBUG_WLAN_API_ERROR
 	bool "Enable WLAN API ERROR Debug Output"
 	default y
-	depends on NETUTILS_WIFI
+	depends on SCSC_WLAN
 	---help---
 		Enables ERROR level debug output for SLSI Wi-Fi API.
 		Errors are significant system exceptions that require immediate attention.
@@ -915,7 +1035,7 @@ config DEBUG_WLAN_API_ERROR
 config DEBUG_WLAN_API_DEBUG
 	bool "Enable DEBUG Output"
 	default n
-	depends on NETUTILS_WIFI
+	depends on SCSC_WLAN
 	select DEBUG_WLAN_API_ERROR
 	---help---
 		Enables DEBUG level debug output for SLSI Wi-Fi API.
@@ -923,7 +1043,7 @@ config DEBUG_WLAN_API_DEBUG
 config DEBUG_WLAN_API_INFO
 	bool "Enable VERBOSE Debug Output"
 	default n
-	depends on NETUTILS_WIFI
+	depends on SCSC_WLAN
 	select DEBUG_WLAN_API_DEBUG
 	---help---
 		Enables VERBOSE level debug output for SLSI Wi-Fi API.

@@ -198,6 +198,13 @@ struct lcd_dev_s {
 	int (*setcontrast)(struct lcd_dev_s *dev, unsigned int contrast);
 };
 
+struct dsi_ops_s {
+	uint8_t (*config)(void);
+	void (*enable)(void);
+	void (*disable)(void);
+	void (*refresh)(void);
+};
+
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/

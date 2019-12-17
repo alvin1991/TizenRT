@@ -33,19 +33,14 @@ if NET_LWIP
 source net/lwip/configs/Kconfig
 endif #NET_LWIP
 
-
-
-menu "Driver buffer configuration"
-
-config NET_MULTIBUFFER
-	bool "Use multiple device-side I/O buffers"
+config NET_TASK_BIND
+	bool "Bind to the task"
+	depends on NSOCKET_DESCRIPTORS > 0
 	default n
 	---help---
-		If this configuration is selected, then the
-		driver can manage multiple I/O buffers and can, for example,
-		be filling one input buffer while sending another output buffer.
-		Or, as another example, the driver may support queuing of concurrent
-		input/ouput and output transfers for better performance.
+		Enable bind sockets to task
+
+menu "Driver buffer configuration"
 
 config NET_ETH_MTU
 	int "Ethernet packet buffer size (MTU)"
@@ -112,6 +107,21 @@ config NET_LWIP_DHCP
 	bool "(Optional) Enabling LwIP DHCP client/server"
 	depends on NET_LWIP
 endchoice #DHCP
+
+config LWIP_DHCP_TCPIP_THREAD
+	bool "Running over LwIP Thread"
+	depends on NET_LWIP_DHCP
+	default n
+	---help---
+		Enable netifapi of DHCP to run it over LwIP TCPIP main thread
+
+config LWIP_DHCP_HOSTNAME
+	bool "Enable Hostname Option"
+	depends on NET_LWIP_DHCP
+	default n
+	---help---
+		Enable hostname option for DHCP client
+
 source "$EXTERNALDIR/dhcpc/Kconfig.protocol"
 source "$EXTERNALDIR/dhcpd/Kconfig.protocol"
 endmenu #DHCP
@@ -163,5 +173,28 @@ source "$EXTERNALDIR/netutils/Kconfig.netutil"
 
 endmenu #menu "Network utilities"
 
+menu "Network Manager"
+
+source "net/netmgr/Kconfig"
+
+endmenu # "Network Manager"
+
+menuconfig LWNL80211
+	bool "Enable light-weight netlink"
+	default n
+	---help---
+		Lwnl provides a driver interface for NIC hardware.
+
+if LWNL80211
+source "drivers/lwnl/Kconfig"
+endif
+
+config NET_LOOPBACK_INTERFACE
+	bool "Support loopback interface"
+	default n
+	---help---
+		Support loop interface (127.0.0.1).
+
 endif # NET
+
 

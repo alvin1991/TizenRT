@@ -78,7 +78,7 @@
 
 #include <inttypes.h>
 
-#include <net/lwip/netdb.h>
+#include "lwip/netdb.h"
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -124,6 +124,8 @@ struct servent_data {
 };
 
 #if CONFIG_NET_LWIP
+
+//#ifndef CONFIG_NET_NETMGR
 typedef enum {
 	GETADDRINFO,
 	FREEADDRINFO,
@@ -141,6 +143,7 @@ typedef enum {
 struct req_lwip_data {
 	req_type type;
 	int req_res;
+	const char *intf;
 	const char *host_name;
 	const char *serv_name;
 	const struct addrinfo *ai_hint;
@@ -155,6 +158,7 @@ struct req_lwip_data {
 	u8_t num_dns;
 	ip_addr_t *dns_server;
 };
+//#endif // CONFIG_NET_NETMGR
 #endif
 
 /****************************************************************************

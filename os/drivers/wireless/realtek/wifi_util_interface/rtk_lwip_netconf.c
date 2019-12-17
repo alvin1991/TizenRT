@@ -1,21 +1,17 @@
 /******************************************************************************
+ * Copyright (c) 2013-2016 Realtek Semiconductor Corp.
  *
- * Copyright(c) 2007 - 2011 Realtek Corporation. All rights reserved.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of version 2 of the GNU General Public License as
- * published by the Free Software Foundation.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110, USA
- *
- *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  ******************************************************************************/
 
 /* Includes ------------------------------------------------------------------*/
@@ -23,20 +19,20 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "net/lwip/mem.h"
-#include "net/lwip/memp.h"
-#include "net/lwip/dhcp.h"
+#include "lwip/mem.h"
+#include "lwip/memp.h"
+#include "lwip/dhcp.h"
 #if LWIP_DNS
 #if LWIP_VERSION_MAJOR >= 2
-#include "net/lwip/prot/dns.h"
+#include "lwip/prot/dns.h"
 #endif
 #endif
-#include "net/lwip/netif.h"
-#include "net/lwip/tcp.h"
+#include "lwip/netif.h"
+#include "lwip/tcp.h"
 #include "ethernetif_tizenrt.h"
 #include "rtk_lwip_netconf.h"
 
-#include "net/lwip/tcpip.h"
+#include "lwip/tcpip.h"
 #include "wifi_ind.h"
 
 //#include <platform/platform_stdlib.h>

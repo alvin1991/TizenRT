@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright 2017 Samsung Electronics All Rights Reserved.
+ * Copyright 2019 Samsung Electronics All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include "wifi_utils.h"
+#include <tinyara/wifi/wifi_utils.h>
 
 
 wifi_utils_result_e wifi_utils_init(void)
@@ -56,7 +56,7 @@ wifi_utils_result_e wifi_utils_disconnect_ap(void *arg)
 }
 
 
-wifi_utils_result_e wifi_utils_get_info(wifi_utils_info *wifi_info)
+wifi_utils_result_e wifi_utils_get_info(wifi_utils_info_s *wifi_info)
 {
 	return WIFI_UTILS_SUCCESS;
 }

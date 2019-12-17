@@ -1,24 +1,37 @@
+/******************************************************************************
+ * Copyright (c) 2013-2016 Realtek Semiconductor Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ ******************************************************************************/
+
 #include <tinyara/config.h>
+#include <tinyara/wifi/wifi_common.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <debug.h>
-#include <net/lwip/netif.h>
+#include "lwip/netif.h"
 #include <rtk_lwip_netconf.h>
 
 #include "osdep_service.h"
 #include "wifi_conf.h"
 #include "wifi_util.h"
 #include "rtk_lwip_netconf.h"
-#include "net/lwip/ip_addr.h"
-#include "net/lwip/ip4_addr.h"
-#include "wifi_common.h"
-#include "rtk_wifi_utils.h"
-#include "net/lwip/tcpip.h"
-
-#include <../../framework/src/wifi_manager/wifi_common.h>
+#include "lwip/ip_addr.h"
+#include "lwip/ip4_addr.h"
+#include "lwip/tcpip.h"
 
 #define vTaskDelay(t) usleep(t)
 
@@ -288,7 +301,7 @@ int8_t cmd_wifi_ap(wifi_utils_softap_config_s *softap_config)
 
 	if (wifi_on(RTW_MODE_AP) < 0) {
 		ndbg("\n\rERROR: Wifi on failed!");
-		return;
+		return -1;
 	}
 
 	nvdbg("\n\rStarting AP ...");
@@ -376,11 +389,7 @@ int8_t cmd_wifi_connect(wifi_utils_ap_config_s *ap_connect_config, void *arg)
 		key_id = 1; //Foucus
 		if ((password_len != 5) && (password_len != 13)) {
 			ndbg("\n\rWrong WEP key length. Must be 5 or 13 ASCII characters.");
-			return;
-		}
-		if ((key_id < 0) || (key_id > 3)) {
-			ndbg("\n\rWrong WEP key id. Must be one of 0,1,2, or 3.");
-			return;
+			return -1;
 		}
 		semaphore = NULL;
 		break;
@@ -400,7 +409,7 @@ int8_t cmd_wifi_connect(wifi_utils_ap_config_s *ap_connect_config, void *arg)
 
 	if (wifi_on(RTW_MODE_STA) < 0) {
 		ndbg("\n\rERROR: Wifi on failed!");
-		return;
+		return -1;
 	}
 
 	ret = wifi_connect(ssid,
@@ -440,7 +449,7 @@ int8_t cmd_wifi_connect_bssid(int argc, char **argv)
 
 	if ((argc != 3) && (argc != 4) && (argc != 5) && (argc != 6)) {
 		ndbg("\n\rUsage: wifi_connect_bssid 0/1 [SSID] BSSID / xx:xx:xx:xx:xx:xx [WPA PASSWORD / (5 or 13) ASCII WEP KEY] [WEP KEY ID 0/1/2/3]");
-		return;
+		return -1;
 	}
 
 	//Check if in AP mode
@@ -453,7 +462,7 @@ int8_t cmd_wifi_connect_bssid(int argc, char **argv)
 		vTaskDelay(20);
 		if (wifi_on(RTW_MODE_STA) < 0) {
 			ndbg("\n\rERROR: Wifi on failed!");
-			return;
+			return -1;
 		}
 	}
 	//check ssid
@@ -462,7 +471,7 @@ int8_t cmd_wifi_connect_bssid(int argc, char **argv)
 		ssid_len = strlen((const char *)argv[2]);
 		if ((ssid_len <= 0) || (ssid_len > 32)) {
 			ndbg("\n\rWrong ssid. Length must be less than 32.");
-			return;
+			return -1;
 		}
 		ssid = argv[2];
 	}
@@ -492,11 +501,11 @@ int8_t cmd_wifi_connect_bssid(int argc, char **argv)
 		key_id = atoi(argv[4 + index]);
 		if ((password_len != 5) && (password_len != 13)) {
 			ndbg("\n\rWrong WEP key length. Must be 5 or 13 ASCII characters.");
-			return;
+			return -1;
 		}
 		if ((key_id < 0) || (key_id > 3)) {
 			ndbg("\n\rWrong WEP key id. Must be one of 0,1,2, or 3.");
-			return;
+			return -1;
 		}
 		semaphore = NULL;
 	}
@@ -513,10 +522,12 @@ int8_t cmd_wifi_connect_bssid(int argc, char **argv)
 
 	if (ret != RTW_SUCCESS) {
 		ndbg("\n\rERROR: Operation failed!");
-		return;
+		return -1;
 	} else {
 		ndbg("\r\nConnected\n");
 	}
+
+	return 0;
 }
 
 int8_t cmd_wifi_disconnect(void)
@@ -731,7 +742,7 @@ static void _free_scanlist(void)
 	while (g_scan_list) {
 		wifi_utils_scan_list_s *cur = g_scan_list;
 		g_scan_list = g_scan_list->next;
-		rtw_mfree(cur, sizeof(cur));
+		rtw_mfree(cur, sizeof(wifi_utils_scan_list_s));
 	}
 	g_scan_num = 0;
 }
@@ -744,7 +755,7 @@ rtw_result_t app_scan_result_handler(rtw_scan_handler_result_t *malloced_scan_re
 	scan_list = (wifi_utils_scan_list_s *)rtw_zmalloc(sizeof(wifi_utils_scan_list_s));
 	if (scan_list == NULL) {
 		ndbg("\r\n[app_scan_result_handler]:Fail to malloc scan_list\r\n");
-		return;
+		return RTW_ERROR;
 	}
 
 	if (malloced_scan_result->scan_complete != RTW_TRUE) {

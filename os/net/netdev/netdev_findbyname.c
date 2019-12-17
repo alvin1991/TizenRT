@@ -61,7 +61,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include <net/lwip/netif.h>
+#include "lwip/netif.h"
 #include "netdev/netdev.h"
 
 /****************************************************************************
@@ -108,7 +108,6 @@
 FAR struct netif *netdev_findbyname(const char *ifname)
 {
 	struct netif *dev;
-
 	if (ifname) {
 		netdev_semtake();
 		dev = netif_find((char *)ifname);

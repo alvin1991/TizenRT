@@ -67,7 +67,7 @@
  *    architecture-specific implementation in arch/
  *
  *    NOTE: up_ is supposed to stand for microprocessor; the u is like the
- *    Greek letter micron: ? So it would be µP which is a common shortening
+ *    Greek letter micron: ? So it would be ï¿½P which is a common shortening
  *    of the word microprocessor.
  *
  * 2. Microprocessor-Specific Interfaces.
@@ -685,7 +685,7 @@ void up_signal_handler(_sa_sigaction_t sighand, int signo, FAR siginfo_t *info, 
 
 /* Memory management ********************************************************/
 
-#if CONFIG_MM_REGIONS > 1
+#if (CONFIG_MM_REGIONS > 1) || (defined(CONFIG_MM_KERNEL_HEAP) && (CONFIG_KMM_REGIONS > 1))
 void up_addregion(void);
 #else
 #define up_addregion()
@@ -2126,6 +2126,38 @@ int up_getc(void);
  ****************************************************************************/
 
 void up_puts(FAR const char *str);
+
+#ifdef CONFIG_WATCHDOG_FOR_IRQ
+/****************************************************************************
+ * Name: up_wdog_init
+ *
+ * Description:
+ *   Initialize the watchdog for irq
+ *
+ ****************************************************************************/
+void up_wdog_init(uint16_t timeout);
+
+/****************************************************************************
+ * Name: up_wdog_keepalive
+ *
+ * Description:
+ *   Reset the watchdog timer for preventing timeouts.
+ *
+ ****************************************************************************/
+void up_wdog_keepalive(void);
+
+#endif
+
+#ifdef CONFIG_BUILD_PROTECTED
+/****************************************************************************
+ * Name: is_kernel_space
+ *
+ * Description:
+ *   Check the address is in kernel space or not
+ *
+ ****************************************************************************/
+bool is_kernel_space(void *addr);
+#endif
 
 #undef EXTERN
 #ifdef __cplusplus

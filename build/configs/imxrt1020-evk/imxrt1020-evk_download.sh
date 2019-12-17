@@ -32,6 +32,11 @@ CURDIR_PATH=$(dirname "$CURDIR")
 # When location of this script is changed, only TOP_PATH should be changed together!!!
 TOP_PATH=${CURDIR_PATH}/../../..
 
+USBRULE_PATH=${CURDIR_PATH}/../usbrule.sh
+USBRULE_BOARD="imxrt"
+USBRULE_IDVENDOR="0d28"
+USBRULE_IDPRODUCT="0204"
+
 OS_PATH=${TOP_PATH}/os
 OUTBIN_PATH=${TOP_PATH}/build/output/bin
 TTYDEV="/dev/ttyACM0"
@@ -98,6 +103,7 @@ function get_executable_name()
 		app) echo "tinyara_user.bin";;
 		micom) echo "micom";;
 		wifi) echo "wifi";;
+		userfs) echo "imxrt1020-evk_smartfs.bin";;
 		*) echo "No Binary Match"
 		exit 1
 	esac
@@ -111,6 +117,14 @@ function get_partition_index()
 		app | App | APP) echo "1";;
 		micom | Micom | MICOM) echo "2";;
 		wifi | Wifi | WIFI) echo "4";;
+		userfs | Userfs | USERFS)
+		for i in "${!parts[@]}"
+		do
+		   if [[ "${parts[$i]}" = "userfs" ]]; then
+			echo $i
+		   fi
+		done
+		;;
 		*) echo "No Matching Partition"
 		exit 1
 	esac
@@ -165,7 +179,6 @@ function get_partition_sizes()
 }
 
 # Start here
-
 imxrt1020_sanity_check;
 
 parts=$(get_configured_partitions)
@@ -190,7 +203,7 @@ echo "PARTITION SIZES: ${sizes[@]}"
 echo "PARTIION NAMES: ${parts[@]}"
 
 if test $# -eq 0; then
-	echo -e "\n## INCORRECT USAGE: Refer HELP##"
+	echo "FAIL!! NO Given partition. Refer \"PARTITION NAMES\" above."
 	imxrt1020_dwld_help 1>&2
 	exit 1
 fi
@@ -212,6 +225,7 @@ for i in ${cmd_args[@]};do
 	done
 
 	if [[ "$result" != "yes" ]];then
+		echo "FAIL!! Given \"${i}\" partition is not available. Refer \"PARTITION NAMES\" above."
 		imxrt1020_dwld_help
 		exit 1
 	fi
@@ -220,11 +234,17 @@ done
 
 imxrt1020_bootstrap;
 
-case $1 in
+case ${1,,} in
 #Download ALL option
-ALL)
+all)
 	for part in ${uniq_parts[@]}; do
 		if [[ "$part" == "userfs" ]];then
+			continue
+		fi
+		if [[ "$part" == "ftl" ]];then
+			continue
+		fi
+		if [[ "$part" == "config" ]];then
 			continue
 		fi
 		gidx=$(get_partition_index $part)
@@ -234,10 +254,10 @@ ALL)
 	done
 	;;
 #Download ERASE <list of partitions>
-ERASE)
+erase)
 	while test $# -gt 1
 	do
-		chk=$2
+		chk=${2,,}
 		for i in "${!parts[@]}"; do
 		   if [[ "${parts[$i]}" = "${chk}" ]]; then
 			flash_erase ${offsets[${i}]} ${sizes[${i}]}
@@ -246,11 +266,14 @@ ERASE)
 		shift
 	done
 	;;
+usbrule)
+	${USBRULE_PATH} ${USBRULE_BOARD} ${USBRULE_IDVENDOR} ${USBRULE_IDPRODUCT} || exit 1
+	;;
 #Download <list of partitions>
 *)
 	while test $# -gt 0
 	do
-		chk=$1
+		chk=${1,,}
 		for i in "${!uniq_parts[@]}"; do
 		   if [[ "${uniq_parts[$i]}" = "${chk}" ]]; then
 			gidx=$(get_partition_index ${chk})

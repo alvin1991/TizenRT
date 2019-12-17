@@ -63,7 +63,11 @@
 #include <stdint.h>
 #include <tinyara/config.h>
 #include <net/ethernet.h>
-#include <net/lwip/netif.h>
+#include "lwip/netif.h"
+
+#ifdef CONFIG_NET_NETMGR
+#include <tinyara/netmgr/netdev_mgr.h>
+#endif
 
 #ifdef CONFIG_NET_ETHERNET
 
@@ -96,7 +100,7 @@ struct eth_hdr_s {
 
 void ethernetif_status_callback(struct netif *netif);
 err_t ethernetif_init(struct netif *netif);
-int ethernetif_input(struct netif *netif);
+int ethernetif_input(struct netif *netif, uint8_t *buf, uint16_t buflen);
 
 #ifdef __cplusplus
 #define EXTERN extern "C"

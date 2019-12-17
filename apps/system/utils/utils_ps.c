@@ -65,7 +65,8 @@
 
 #include "utils_proc.h"
 
-#define PS_BUFLEN 64
+#define STATENAMES_ARRARY_SIZE (sizeof(utils_statenames) / sizeof(utils_statenames[0]))
+#define PS_BUFLEN 128
 
 static const char *utils_statenames[] = {
 	"INVALID ",
@@ -109,7 +110,7 @@ static void ps_print_values(char *buf)
 	}
 
 	state = atoi(stat_info[PROC_STAT_STATE]);
-	if (state <= 0) {
+	if (state <= 0 || STATENAMES_ARRARY_SIZE <= state) {
 		return;
 	}
 

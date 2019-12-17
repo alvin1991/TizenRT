@@ -27,6 +27,11 @@ OS_DIR_PATH=${THIS_PATH}/../../../os
 
 source ${OS_DIR_PATH}/.config
 
+USBRULE_PATH=${THIS_PATH}/../usbrule.sh
+USBRULE_BOARD="artik"
+USBRULE_IDVENDOR="0403"
+USBRULE_IDPRODUCT="6010"
+
 PARTMAP_DIR_PATH=${THIS_PATH}
 PARTITION_KCONFIG=${OS_DIR_PATH}/board/common/Kconfig
 BUILD_DIR_PATH=${OS_DIR_PATH}/../build
@@ -37,6 +42,7 @@ SCRIPTS_PATH=${ARTIK05X_DIR_PATH}/scripts
 
 TIZENRT_BIN=${OUTPUT_BINARY_PATH}/tinyara_head.bin
 TIZENRT_APPS_BIN=${OUTPUT_BINARY_PATH}/tinyara_user.bin
+SMARTFS_BIN=${OUTPUT_BINARY_PATH}/artik05x_smartfs.bin
 
 OPENOCD_DIR_PATH=${BUILD_DIR_PATH}/tools/openocd
 if [[ $OSTYPE == "darwin"* ]]; then
@@ -62,7 +68,7 @@ USAGE: `basename $0` [OPTIONS]
 OPTIONS:
 	[--board[="<board-name>"]]
 	[--secure]
-	[ALL | ROMFS | BL1 | BL2 | SSSFW | WLANFW]
+	[ALL | ROMFS | BL1 | BL2 | SSSFW | WLANFW | USERFS]
 
 For examples:
 	`basename $0` --board=artik053 ALL
@@ -80,6 +86,7 @@ Options:
 	BL2                           write Secondary Bootloader image into FLASH
 	SSSFW                         write Secure Element Firmware image into FLASH
 	WLANFW                        write WiFi Firmware image into FLASH
+	USERFS                        write user FS to SMARTFS partition
 
 EOF
 }
@@ -100,6 +107,14 @@ is_file_present()
 	    return 0
 	fi
 	return 1
+}
+
+compute_ocd_commands_user()
+{
+	local commands=
+	ensure_file ${SMARTFS_BIN}
+	commands+="flash_write user ${SMARTFS_BIN} ${VERIFY}"
+	echo ${commands}
 }
 
 compute_ocd_commands()
@@ -176,10 +191,9 @@ download()
 {
 	parts=$1;
 
-	if [[ -n $parts ]] && [[ "$parts" != "all" ]] && [[ "$parts" != "ALL" ]]
+	if [[ -n $parts ]] && [[ "$parts" != "all" ]]
 	then
 		echo "##Download $parts"
-		parts=$(echo $parts | tr '[:upper:]' '[:lower:]')
 	else
 	        default_parts=`grep -A 2 'config FLASH_PART_NAME' ${PARTITION_KCONFIG} | sed -n 's/\tdefault "\(.*\)".*/\1/p'`
 		configured_parts=${CONFIG_FLASH_PART_NAME:=${default_parts}}
@@ -187,8 +201,15 @@ download()
 	fi
 
 	# Make Openocd commands for parts
-	commands=$(compute_ocd_commands ${parts})
-	echo "ocd command to run: ${commands}"
+	if [[ "$parts" == "user" ]]
+	then
+		commands=$(compute_ocd_commands_user)
+		echo "ocd command to run: ${commands}"
+	else
+	# Make Openocd commands for parts
+		commands=$(compute_ocd_commands ${parts})
+		echo "ocd command to run: ${commands}"
+	fi
 
 	# Generate Partition Map
 	${SCRIPTS_PATH}/partition_gen.sh
@@ -203,18 +224,18 @@ download()
 
 erase()
 {
-	case $optarg in
-		OTA|ota)
+	case $1 in
+		ota)
 			PART_NAME=ota
 			;;
-		USERFS|userfs)
+		userfs)
 			PART_NAME=user
 			;;
-		ALL|all)
+		all)
 			PART_NAME=all
 			;;
 		*)
-			echo "${optarg} is not supported"
+			echo "${$1} is not supported"
 			exit 1
 			;;
 	esac
@@ -235,12 +256,11 @@ fi
 
 while test $# -gt 0; do
 	case "$1" in
-		-*=*) optarg=`echo "$1" | sed 's/[-_a-zA-Z0-9]*=//'` ;;
-		ERASE_*) optarg=`echo "$1" | sed 's/ERASE_//'` ;;
+		-*=*) optarg=`echo "${1,,}" | sed 's/[-_a-zA-Z0-9]*=//'` ;;
 		*) optarg= ;;
 	esac
 
-	case $1 in
+	case ${1,,} in
 		--board*)
 			BOARD_NAME=$optarg
 			BOARD_DIR_PATH=${BUILD_DIR_PATH}/configs/${BOARD_NAME}
@@ -256,11 +276,18 @@ while test $# -gt 0; do
 		--verify)
 			VERIFY=verify
 			;;
-		ALL|OS|APPS|ROM|BL1|BL2|SSSFW|WLANFW|OTA|MICOM|WIFI|all|os|apps|rom|bl1|bl2|sssfw|wlanfw|ota|micom|wifi)
-			download $1
+		all|os|apps|rom|bl1|bl2|sssfw|wlanfw|ota|micom|wifi|user)
+			download ${1,,}
 			;;
-		ERASE_*)
-			erase
+		usbrule)
+			${USBRULE_PATH} ${USBRULE_BOARD} ${USBRULE_IDVENDOR} ${USBRULE_IDPRODUCT} || exit 1
+			;;
+		erase)
+			while test $# -gt 1
+			do
+				erase ${2,,}
+				shift
+			done
 			;;
 		*)
 			usage 1>&2

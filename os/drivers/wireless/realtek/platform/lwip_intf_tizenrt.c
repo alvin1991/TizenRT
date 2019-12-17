@@ -1,4 +1,4 @@
-/* mbed Microcontroller Library
+/******************************************************************************
  * Copyright (c) 2013-2016 Realtek Semiconductor Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,13 +12,14 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
+ ******************************************************************************/
+
 
 #define CONFIG_LWIP_LAYER 1
 
 #include <lwip_intf_tizenrt.h>
-#include <net/lwip/init.h>
-#include <net/lwip/netif.h>
+#include "lwip/init.h"
+#include "lwip/netif.h"
 #include <osdep_service.h>
 
 //----- ------------------------------------------------------------------

@@ -24,7 +24,6 @@
 #include <functional>
 
 #include <tinyara/init.h>
-#include <apps/platform/cxxinitialize.h>
 #include <media/FocusManager.h>
 #include <media/MediaPlayer.h>
 #include <media/FileInputDataSource.h>
@@ -244,7 +243,7 @@ void MyMediaPlayer::onPlaybackStarted(MediaPlayer &mediaPlayer)
 void MyMediaPlayer::onPlaybackFinished(MediaPlayer &mediaPlayer)
 {
 	cout << "onPlaybackFinished" << endl;
-	this->mp.unprepare();
+	mediaPlayer.unprepare();
 }
 
 void MyMediaPlayer::onPlaybackError(MediaPlayer &mediaPlayer, player_error_t error)
@@ -274,7 +273,7 @@ void MyMediaPlayer::onPlaybackPaused(MediaPlayer &mediaPlayer)
 
 void MyMediaPlayer::onAsyncPrepared(MediaPlayer &mediaPlayer, player_error_t error)
 {
-	cout << "onAsyncPrepared res" << endl;
+	cout << "onAsyncPrepared res " << error << endl;
 	if (error == PLAYER_ERROR_NONE) {
 		mediaPlayer.start();
 	} else {
@@ -286,7 +285,7 @@ void MyMediaPlayer::onFocusChange(int focusChange)
 {
 	switch (focusChange) {
 	case FOCUS_GAIN:
-		if (testSource == TEST_HTTP) {
+		if ((testSource == TEST_HTTP) || (testSource == TEST_BUFFER)) {
 			if (mp.prepareAsync() != PLAYER_OK) {
 				cout << "Mediaplayer::prepareAsync failed" << endl;
 			}
@@ -402,8 +401,6 @@ private:
 extern "C" {
 int mediaplayer_main(int argc, char *argv[])
 {
-	up_cxxinitialize();
-
 	MediaPlayerController mediaPlayerController;
 	mediaPlayerController.start();
 

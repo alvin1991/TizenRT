@@ -73,6 +73,15 @@ CJSON_PUBLIC(const char *) cJSON_GetErrorPtr(void)
     return (const char*) (global_error.json + global_error.position);
 }
 
+CJSON_PUBLIC(char *) cJSON_GetStringValue(cJSON *item)
+{
+	if (!cJSON_IsString(item)) {
+		return NULL;
+	}
+
+	return item->valuestring;
+}
+
 /* This is a safeguard to prevent copy-pasters from using incompatible C and header files */
 #if (CJSON_VERSION_MAJOR != 1) || (CJSON_VERSION_MINOR != 5) || (CJSON_VERSION_PATCH != 7)
     #error cJSON.h and cJSON.c have different versions. Make sure that both have the same.
@@ -1733,8 +1742,8 @@ static cJSON *get_object_item(const cJSON * const object, const char * const nam
     current_element = object->child;
     if (case_sensitive)
     {
-        while ((current_element != NULL) && (strcmp(name, current_element->string) != 0))
-        {
+		while ((current_element != NULL) && (current_element->string != NULL) && (strcmp(name, current_element->string) != 0))
+		{
             current_element = current_element->next;
         }
     }
@@ -1744,6 +1753,10 @@ static cJSON *get_object_item(const cJSON * const object, const char * const nam
         {
             current_element = current_element->next;
         }
+    }
+
+	if ((current_element == NULL) || (current_element->string == NULL)) {
+        return NULL;
     }
 
     return current_element;

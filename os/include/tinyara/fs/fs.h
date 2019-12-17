@@ -57,7 +57,9 @@
  ****************************************************************************/
 
 #include <tinyara/config.h>
+#ifndef NXFUSE_HOST_BUILD
 #include <tinyara/compiler.h>
+#endif
 
 #include <sys/types.h>
 #include <stdarg.h>
@@ -94,6 +96,10 @@
 #ifdef CONFIG_FS_TMPFS
 #define TMPFS_FSTYPE "tmpfs"
 #define TMPFS_MOUNT_POINT "/tmp"
+#endif
+#ifdef NXFUSE_HOST_BUILD
+#define  O_WROK    1
+#define  O_RDOK    2
 #endif
 
 /****************************************************************************
@@ -282,6 +288,9 @@ struct inode {
 struct file {
 	int f_oflags;				/* Open mode flags */
 	off_t f_pos;				/* File position */
+#ifdef NXFUSE_HOST_BUILD
+	off_t f_seekpos;                        /* File seek position */
+#endif
 	FAR struct inode *f_inode;	/* Driver interface */
 	void *f_priv;				/* Per file driver private data */
 };
@@ -718,19 +727,36 @@ int lib_flushall(FAR struct streamlist *list);
  *   file.  NOTE that this function will currently fail if it is provided
  *   with a socket descriptor.
  *
- * Parameters:
- *   fd - The file descriptor
+ * Input Parameters:
+ *   fd    - The file descriptor
+ *   filep - The location to return the struct file instance
  *
- * Return:
- *   A point to the corresponding struct file instance is returned on
- *   success.  On failure,  NULL is returned and the errno value is
- *   set appropriately (EBADF).
+ * Returned Value:
+ *   Zero (OK) is returned on success; a negated errno value is returned on
+ *   any failure.
  *
  ****************************************************************************/
 
 #if CONFIG_NFILE_DESCRIPTORS > 0
-FAR struct file *fs_getfilep(int fd);
+int fs_getfilep(int fd, FAR struct file **filep);
 #endif
+
+/****************************************************************************
+ * Name: vopen
+ *
+ * Description:
+ *   vopen() is identical to 'open' except that it accepts a va_list
+ *   as an argument versus taking a variable length list of arguments.
+ *
+ *   vopen() is an internal TizenRT interface and should not be called from
+ *   applications.
+ *
+ * Returned Value:
+ *   The new file descriptor is returned on success; a negated errno value is
+ *   returned on any failure.
+ *
+ ****************************************************************************/
+int vopen(FAR const char *path, int oflags, va_list ap);
 
 /* fs/fs_read.c *************************************************************/
 /****************************************************************************
@@ -835,6 +861,19 @@ int file_fsync(FAR struct file *filep);
 
 #if CONFIG_NFILE_DESCRIPTORS > 0
 int file_vfcntl(FAR struct file *filep, int cmd, va_list ap);
+#endif
+
+/* fs/driver/block/fs_blockproxy.c ******************************************/
+/****************************************************************************
+ * Name: unique_chardev_initialize
+ *
+ * Description:
+ *  Initialize a semphore for unique character device.
+ *
+ ****************************************************************************/
+
+#if !defined(CONFIG_DISABLE_PSEUDOFS_OPERATIONS) && !defined(CONFIG_DISABLE_MOUNTPOINT)
+void unique_chardev_initialize(void);
 #endif
 
 /* drivers/dev_null.c *******************************************************/
@@ -956,6 +995,17 @@ ssize_t bchlib_read(FAR void *handle, FAR char *buffer, size_t offset, size_t le
  ****************************************************************************/
 
 ssize_t bchlib_write(FAR void *handle, FAR const char *buffer, size_t offset, size_t len);
+
+/* drivers/pipes/pipe.c ***********************************************/
+/****************************************************************************
+ * Name: pipe_initialize
+ *
+ * Description:
+ *   Initialize a semaphore for pipe
+ *
+ ****************************************************************************/
+
+void pipe_initialize(void);
 
 #undef EXTERN
 #if defined(__cplusplus)

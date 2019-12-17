@@ -92,8 +92,8 @@
 
 void kmm_free(FAR void *mem)
 {
+	struct mm_heap_s *kheap = mm_get_heap(mem);
 	DEBUGASSERT(kmm_heapmember(mem));
-	mm_free(&g_kmmheap, mem);
+	mm_free(kheap, mem);
 }
-
 #endif							/* CONFIG_MM_KERNEL_HEAP */

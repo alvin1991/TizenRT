@@ -100,6 +100,7 @@
 #define _SECLINKBASE    (0x2500)	/* seclink ioctl commands */
 #define _IOTBUSBASE     (0x2600)	/* iotbus ioctl commands */
 #define _FBIOCBASE      (0x2700)	/* Frame buffer character driver ioctl commands */
+#define _CPULOADBASE    (0x2800)	/* cpuload ioctl commands */
 #define _TESTIOCBASE    (0xfe00)	/* KERNEL TEST DRV module ioctl commands */
 
 
@@ -122,7 +123,9 @@
 
 /* Terminal I/O IOCTL definitions are retained in tioctl.h */
 
+#ifndef NXFUSE_HOST_BUILD
 #include <tinyara/serial/tioctl.h>
+#endif
 
 /* Watchdog driver ioctl commands *******************************************/
 
@@ -397,8 +400,9 @@
 #define TMIOC_BROADCAST            _TMIOC(0x0005)
 #define TMIOC_CHECK_ALIVE          _TMIOC(0x0006)
 #define TMIOC_TERMINATE            _TMIOC(0x0007)
+#define TMIOC_EXITCB               _TMIOC(0x0008)
 #if defined(HAVE_TASK_GROUP) && !defined(CONFIG_DISABLE_PTHREAD)
-#define TMIOC_PTHREAD_PARENT       _TMIOC(0x0008)
+#define TMIOC_PTHREAD_PARENT       _TMIOC(0x0009)
 #endif
 
 /* Heapinfo driver ioctl definitions ******************************************/
@@ -410,6 +414,15 @@
 #define HEAPINFOIOC_PPID              _HEAPINFOIOC(0x0003)
 #define HEAPINFOIOC_STKSIZE           _HEAPINFOIOC(0x0004)
 #define HEAPINFOIOC_TASKNAME          _HEAPINFOIOC(0x0005)
+
+/* Cpuload driver ioctl definitions ************************/
+
+#define _CPULOADIOCVALID(c)   (_IOC_TYPE(c) == _CPULOADBASE)
+#define _CPULOADIOC(nr)       _IOC(_CPULOADBASE, nr)
+
+#define CPULOADIOC_START              _CPULOADIOC(0x0001)
+#define CPULOADIOC_STOP               _CPULOADIOC(0x0002)
+#define CPULOADIOC_GETVALUE           _CPULOADIOC(0x0003)
 
 /* Audio driver ioctl definitions *************************************/
 /* (see tinyara/audio/audio.h) */

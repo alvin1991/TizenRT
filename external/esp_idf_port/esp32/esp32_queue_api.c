@@ -431,3 +431,38 @@ uint32_t IRAM_ATTR queue_msg_waiting_wrapper(void *queue)
 	}
 	return pdFAIL;
 }
+
+/****************************************************************************
+ * Name: queue_reset_wrapper
+ *
+ * Description:
+ *	This function try to clean the messages in recv queue.
+ *
+ * Inputs:
+ *	queue - The queue to reset.
+ * Return:
+ *	Returns pdPASS if success,  returns pdFAIL if failure.
+ *
+ ****************************************************************************/
+int32_t queue_reset_wrapper(void *queue)
+{
+	queue_info_t *queue_info = NULL;
+	void *item = NULL;
+	struct timespec abstime;
+
+	if (!queue) {
+		return pdFAIL;
+	}
+
+	queue_info = (queue_info_t *)queue;
+	item = malloc(queue_info->mq_item_size);
+	if (!item) {
+		return pdFAIL;
+	}
+
+	//read out all messages in recv queue
+	while (queue_recv_wrapper(queue, item, 0) == pdPASS) {}
+
+	return pdPASS;
+}
+

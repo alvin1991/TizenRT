@@ -131,7 +131,7 @@ void *_dhcpd_join_handler(void *arg)
 
 	memset(&req, 0, sizeof(req));
 	req.type = DHCPDSTART;
-	req.host_name = data->intf;
+	req.intf = data->intf;
 
 	ret = ioctl(sockfd, SIOCLWIP, (unsigned long)&req);
 	if (ret == ERROR) {
@@ -193,7 +193,7 @@ int dhcp_server_status(char *intf)
 
 	memset(&req, 0, sizeof(req));
 	req.type = DHCPDSTATUS;
-	req.host_name = intf;
+	req.intf = intf;
 
 	ret = ioctl(sockfd, SIOCLWIP, (unsigned long)&req);
 	if (ret == ERROR) {
@@ -214,6 +214,9 @@ int dhcp_server_status(char *intf)
 
 int dhcp_server_start(char *intf, dhcp_sta_joined dhcp_join_cb)
 {
+	pthread_attr_t attr;
+	struct sched_param sparam;
+	int ret = ERROR;
 	dhcp_join_data_s *data = (dhcp_join_data_s *)malloc(sizeof(dhcp_join_data_s));
 	if (!data) {
 		ndbg("Failed to alloc mem for data\n");
@@ -228,7 +231,21 @@ int dhcp_server_start(char *intf, dhcp_sta_joined dhcp_join_cb)
 	memcpy(data->intf, intf, strlen(intf) + 1);
 	data->fn = dhcp_join_cb;
 
-	int ret = pthread_create(&g_dhcpd_tid, NULL, _dhcpd_join_handler, (void *)data);
+	g_dhcpd_term = 0;
+	if ((ret = pthread_attr_init(&attr)) != 0) {
+		ndbg("Failed to init attr\n");
+		free(data->intf);
+		free(data);
+		return ERROR;
+	}
+	sparam.sched_priority = 110;
+	if ((ret = pthread_attr_setschedparam(&attr, &sparam)) != 0) {
+		ndbg("Failed to set attr\n");
+		free(data->intf);
+		free(data);
+		return ERROR;
+	}
+	ret = pthread_create(&g_dhcpd_tid, &attr, _dhcpd_join_handler, (void *)data);
 	if (ret < 0) {
 		free(data->intf);
 		free(data);
@@ -276,7 +293,7 @@ int dhcp_server_stop(char *intf)
 
 	memset(&req, 0, sizeof(req));
 	req.type = DHCPDSTOP;
-	req.host_name = intf;
+	req.intf = intf;
 
 	ret = ioctl(sockfd, SIOCLWIP, (unsigned long)&req);
 	if (ret == ERROR) {

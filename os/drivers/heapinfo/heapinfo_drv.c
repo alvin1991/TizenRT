@@ -109,14 +109,13 @@ static int heapinfo_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 		if (heap == NULL) {
 			return ERROR;
 		}
+		if (option->mode == HEAPINFO_INIT_PEAK) {
+			heap->peak_alloc_size = 0;
+			return OK;
+		}
 		heapinfo_parse(heap, option->mode, option->pid);
 		ret = OK;
 		break;
-#if CONFIG_MM_REGIONS > 1
-	case HEAPINFOIOC_NREGION:
-		ret = g_kmmheap.mm_nregions;
-		break;
-#endif
 	default:
 		break;
 	}

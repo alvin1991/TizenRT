@@ -382,6 +382,25 @@ config WATCHDOG_DEVPATH
 	string "Watchdog Device Path"
 	default "/dev/watchdog0"
 
+config WATCHDOG_FOR_IRQ
+	bool "Enable watchdog for irq"
+	default n
+	depends on !SUPPRESS_INTERRUPTS && !SUPPRESS_TIMER_INTS && !SYSTEMTICK_EXTCLK
+	---help---
+		If there is no irq within interval, watchdog resets the system.
+
+if WATCHDOG_FOR_IRQ
+
+config WATCHDOG_FOR_IRQ_INTERVAL
+	int "Interval for resetting watchdog(ms)"
+	default 1000
+	---help---
+		After this interval, watchdog for irq expires.
+		This value should be greater than USER_PER_TICK.
+		Default interval is 1000ms.
+
+endif # WATCHDOG_FOR_IRQ
+
 endif # WATCHDOG
 
 config TIMER
@@ -430,6 +449,7 @@ endif # NETDEVICES
 menuconfig PIPES
 	bool "FIFO and named pipe drivers"
 	default n
+	depends on NFILE_DESCRIPTORS != 0
 	---help---
 		FIFO and named pipe drivers.  Standard interfaces are declared
 		in include/unistd.h
@@ -525,16 +545,6 @@ config OTP_NULL
 	default n
 	---help---
 		Virtual OTP device
-endif
-
-menuconfig LWNL80211
-	bool "Enable light-weight netlink for 80211"
-	default n
-	---help---
-		Lwnl80211 provides a driver interface for 802.11 WiFi hardware.
-
-if LWNL80211
-source drivers/lwnl/Kconfig
 endif
 
 source drivers/seclink/Kconfig

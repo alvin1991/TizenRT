@@ -157,6 +157,22 @@ struct mm_heap_s *mm_get_app_heap_with_name(char *app_name)
 	/* There is no app which matched with app_name. */
 	return NULL;
 }
+
+char *mm_get_app_heap_name(void *address)
+{
+	/* First, search the address in list of app heaps */
+	app_heap_s *node = (app_heap_s *)dq_peek(&app_heap_q);
+
+	while (node) {
+		if ((address > (void *)node->heap->mm_heapstart[0]) && (address < (void *)node->heap->mm_heapend[0])) {
+			return node->app_name;
+		}
+		node = dq_next(node);
+	}
+
+	mdbg("address 0x%x is not in any app heap region.\n", address);
+	return NULL;
+}
 #endif
 
 /****************************************************************************
@@ -169,8 +185,16 @@ struct mm_heap_s *mm_get_app_heap_with_name(char *app_name)
 struct mm_heap_s *mm_get_heap(void *address)
 {
 #ifdef CONFIG_MM_KERNEL_HEAP
-	if (address >= (FAR void *)g_kmmheap.mm_heapstart[0] && address < (FAR void *)g_kmmheap.mm_heapend[0]) {
-		return &g_kmmheap;
+	int kheap_idx;
+	int region_idx;
+	struct mm_heap_s *kheap = kmm_get_heap();
+
+	for (kheap_idx = 0; kheap_idx < CONFIG_KMM_NHEAPS; kheap_idx++) {
+		for (region_idx = 0; region_idx < CONFIG_KMM_REGIONS; region_idx++) {
+			if (address >= (FAR void *)kheap[kheap_idx].mm_heapstart[region_idx] && address < (FAR void *)kheap[kheap_idx].mm_heapend[region_idx]) {
+				return &kheap[kheap_idx];
+			}
+		}
 	}
 #endif
 	int heap_idx;

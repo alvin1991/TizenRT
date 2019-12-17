@@ -15,8 +15,8 @@
  * language governing permissions and limitations under the License.
  *
  ****************************************************************************/
-#include <net/lwip/netif/slipif.h>
-#include <net/lwip/opt.h>
+#include "lwip/netif/slipif.h"
+#include "lwip/opt.h"
 
 #include <tinyara/config.h>
 
@@ -42,12 +42,12 @@
 
 #if LWIP_HAVE_SLIPIF
 
-#include <net/lwip/def.h>
-#include <net/lwip/pbuf.h>
-#include <net/lwip/stats.h>
-#include <net/lwip/snmp.h>
-#include <net/lwip/sio.h>
-#include <net/lwip/sys.h>
+#include "lwip/def.h"
+#include "lwip/pbuf.h"
+#include "lwip/stats.h"
+#include "lwip/snmp.h"
+#include "lwip/sio.h"
+#include "lwip/sys.h"
 
 volatile static int i;
 typedef void *sio_fd_t;
@@ -61,15 +61,18 @@ typedef void *sio_fd_t;
 sio_fd_t sio_open(u8_t devnum)
 {
 	int fd;
+	struct file *filep = NULL;
 
 	fd = open("/dev/ttyDBG", O_RDWR, 0666);
 	if (fd < 3) {
 		fs_dupfd2(fd, 3);
 		close(fd);
-		return fs_getfilep(3);
+		fs_getfilep(3, &filep);
+		return filep;
 	}
 
-	return fs_getfilep(fd);
+	fs_getfilep(fd, &filep);
+	return filep;
 }
 
 /**

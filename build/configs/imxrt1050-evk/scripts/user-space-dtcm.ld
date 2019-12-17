@@ -16,7 +16,7 @@
  *
  ****************************************************************************/
 /****************************************************************************
- * build/configs/imxrt1050-evk/scripts/user-space.ld
+ * build/configs/imxrt1050-evk/scripts/user-space-dtcm.ld
  *
  *   Copyright (C) 2018 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
@@ -97,7 +97,7 @@ SECTIONS
   .init_section :
   {
     _sinit = ABSOLUTE(.);
-    *(.init_array .init_array.*)
+	KEEP(*(.init_array .init_array.*))
     _einit = ABSOLUTE(.);
   } > uflash
 

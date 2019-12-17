@@ -22,7 +22,6 @@
 #include <tinyara/config.h>
 #include <tinyara/init.h>
 #include <stdio.h>
-#include <apps/platform/cxxinitialize.h>
 #include <errno.h>
 #include <iostream>
 #include "tc_common.h"
@@ -47,9 +46,7 @@ int main(int argc, FAR char *argv[])
 int itc_media_main(int argc, char *argv[])
 #endif
 {
-	up_cxxinitialize();
-	
-	if (tc_handler(TC_START, "Media ITC") == -1) {
+	if (testcase_state_handler(TC_START, "Media ITC") == -1) {
 		return -1;
 	}
 
@@ -65,7 +62,7 @@ int itc_media_main(int argc, char *argv[])
 	itc_media_bufferoutputdatasource_main();
 #endif
 
-	(void)tc_handler(TC_END, "Media ITC");
+	(void)testcase_state_handler(TC_END, "Media ITC");
 	return 0;
 }
 }

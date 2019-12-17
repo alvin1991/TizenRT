@@ -61,15 +61,37 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
-#include <net/lwip/netdb.h>
-#include <net/lwip/sockets.h>
+#include <net/if.h>
+#include "lwip/netdb.h"
+#include "lwip/sockets.h"
 #ifdef CONFIG_NET_IPv4
-#include <net/lwip/ip4_addr.h>
+#include "lwip/ip4_addr.h"
 #endif
 #ifdef CONFIG_NET_IPv6
-#include <net/lwip/ip6_addr.h>
+#include "lwip/ip6_addr.h"
 #endif
+#include <tinyara/lwnl/lwnl.h>
 
+/*
+ * Private
+ */
+int _create_netlink(int type, int protocol)
+{
+	// to do message filter
+	(void)type;
+	(void)protocol;
+
+	int fd = open(LWNL_PATH, O_RDWR);
+	if (fd < 0) {
+		ndbg("open netlink dev fail\n");
+		return -1;
+	}
+	return fd;
+}
+
+/*
+ *public
+ */
 int bind(int s, const struct sockaddr *name, socklen_t namelen)
 {
 	return lwip_bind(s, name, namelen);
@@ -206,6 +228,11 @@ static int socket_argument_validation(int domain, int type, int protocol)
 
 int socket(int domain, int type, int protocol)
 {
+	if (domain == AF_LWNL) {
+		int fd = _create_netlink(type, protocol);
+		return fd;
+	}
+
 	if (!socket_argument_validation(domain, type, protocol)) {
 		return lwip_socket(domain, type, protocol);
 	}

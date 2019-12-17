@@ -73,6 +73,37 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+/************************************************************************
+ * Name: kmm_memalign_at
+ *
+ * Description:
+ *   memalign to the specific kernel heap.
+ *   kmm_memalign_at tries to align the memory for a specific heap
+ *  which passed by api argument.
+ *   If there is no enough space, it will return NULL.
+ *
+ * Return Value:
+ *   The address of the allocated memory (NULL on failure to allocate)
+ *
+ ************************************************************************/
+#if CONFIG_KMM_NHEAPS > 1
+void *kmm_memalign_at(int heap_index, size_t alignment, size_t size)
+{
+	struct mm_heap_s *kheap;
+	if (heap_index >= CONFIG_KMM_NHEAPS || heap_index < 0) {
+		mdbg("kmm_memalign_at failed. Wrong heap index (%d) of (%d)\n", heap_index, CONFIG_KMM_NHEAPS);
+		return NULL;
+	}
+
+	kheap = kmm_get_heap();
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+	ARCH_GET_RET_ADDRESS
+	return mm_memalign(&kheap[heap_index], alignment, size, retaddr);
+#else
+	return mm_memalign(&kheap[heap_index], alignment, size);
+#endif
+}
+#endif
 
 /************************************************************************
  * Name: kmm_memalign
@@ -91,11 +122,20 @@
 
 FAR void *kmm_memalign(size_t alignment, size_t size)
 {
+	void *ret;
+	int kheap_idx;
+	struct mm_heap_s *kheap = kmm_get_heap();
+	for (kheap_idx = 0; kheap_idx < CONFIG_KMM_NHEAPS; kheap_idx++) {
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-	return mm_memalign(&g_kmmheap, alignment, size, __builtin_return_address(0));
+		ret = mm_memalign(&kheap[kheap_idx], alignment, size, __builtin_return_address(0));
 #else
-	return mm_memalign(&g_kmmheap, alignment, size);
+		ret = mm_memalign(&kheap[kheap_idx], alignment, size);
 #endif
+		if (ret != NULL) {
+			return ret;
+		}
+	}
+	return NULL;
 }
 
 #endif							/* CONFIG_MM_KERNEL_HEAP */

@@ -67,6 +67,37 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+/************************************************************************
+ * Name: kmm_zalloc_at
+ *
+ * Description:
+ *   zalloc to the specific kernel heap.
+ *   kmm_zalloc_at tries to allocate memory for a specific kernel heap
+ *  which passed by api argument.
+ *   If there is no enough space to allocate, it will return NULL.
+ *
+ * Return Value:
+ *   The address of the allocated memory (NULL on failure to allocate)
+ *
+ ************************************************************************/
+#if CONFIG_KMM_NHEAPS > 1
+void *kmm_zalloc_at(int heap_index, size_t size)
+{
+	struct mm_heap_s *kheap;
+	if (heap_index >= CONFIG_KMM_NHEAPS || heap_index < 0) {
+		mdbg("kmm_zalloc_at failed. Wrong heap index (%d) of (%d)\n", heap_index, CONFIG_KMM_NHEAPS);
+		return NULL;
+	}
+
+	kheap = kmm_get_heap();
+#ifdef CONFIG_DEBUG_MM_HEAPINFO
+	ARCH_GET_RET_ADDRESS
+	return mm_zalloc(&kheap[heap_index], size, retaddr);
+#else
+	return mm_zalloc(&kheap[heap_index], size);
+#endif
+}
+#endif
 
 /************************************************************************
  * Name: kmm_zalloc
@@ -84,11 +115,21 @@
 
 FAR void *kmm_zalloc(size_t size)
 {
+	void *ret;
+	int kheap_idx;
+	struct mm_heap_s *kheap = kmm_get_heap();
+
+	for (kheap_idx = 0; kheap_idx < CONFIG_KMM_NHEAPS; kheap_idx++) {
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-	return mm_zalloc(&g_kmmheap, size, __builtin_return_address(0));
+		ret = mm_zalloc(&kheap[kheap_idx], size, __builtin_return_address(0));
 #else
-	return mm_zalloc(&g_kmmheap, size);
+		ret = mm_zalloc(&kheap[kheap_idx], size);
 #endif
+		if (ret != NULL) {
+			return ret;
+		}
+	}
+	return NULL;
 }
 
 #endif							/* CONFIG_MM_KERNEL_HEAP */

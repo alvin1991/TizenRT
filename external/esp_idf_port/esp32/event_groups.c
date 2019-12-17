@@ -65,7 +65,10 @@
 #include <errno.h>
 #include <debug.h>
 #include <queue.h>
+#include <tinyara/arch.h>
 #include <tinyara/sched.h>
+#include <tinyara/wdog.h>
+#include "esp_define.h"
 #include "event_groups.h"
 
 #if defined(CONFIG_USE_16_BIT_TICKS)
@@ -92,6 +95,8 @@ typedef struct event_node {
 	tick_type_t item_value;
 } event_node_t;
 
+static event_node_t *event_data[MAX_PID_MASK];
+
 event_group_handle_t event_group_create(void)
 {
 	event_group_t *pevent_bits = NULL;
@@ -103,7 +108,33 @@ event_group_handle_t event_group_create(void)
 		sq_init(&(pevent_bits->tasks_waiting_for_bits));
 		pthread_mutex_init(&pevent_bits->event_group_mux, NULL);
 	}
-	return (event_group_handle_t) pevent_bits;
+	return (event_group_handle_t)pevent_bits;
+}
+
+static void task_add_event_item(event_node_t *pevent_node)
+{
+	if (pevent_node) {
+		event_data[pevent_node->pid] = pevent_node;
+	}
+}
+
+static tick_type_t task_reset_event_item_value(event_group_t *pevent_group)
+{
+	tick_type_t ret = 0;
+	pid_t pid = getpid();
+
+	pthread_mutex_lock(&pevent_group->event_group_mux);
+	event_node_t *pevent_node = event_data[pid];
+	if (pevent_node) {
+		/* Get the item value*/
+		ret = pevent_node->item_value;
+		/* Remove the current node from event group queue*/
+		sq_rem((sq_entry_t *)pevent_node, &(pevent_group->tasks_waiting_for_bits));
+		free(pevent_node);
+		event_data[pid] = NULL;
+	}
+	pthread_mutex_unlock(&pevent_group->event_group_mux);
+	return ret;
 }
 
 static base_type_t test_wait_condition(const event_bits_t current_event_bits, const event_bits_t bits_to_wait_for, const base_type_t wait_for_all_bits)
@@ -113,7 +144,7 @@ static base_type_t test_wait_condition(const event_bits_t current_event_bits, co
 	if (wait_for_all_bits == WIFI_ADAPTER_FALSE) {
 		/* Task only has to wait for one bit within bits_to_wait_for to be
 		   set.  Is one already set? */
-		if ((current_event_bits & bits_to_wait_for) != (event_bits_t) 0) {
+		if ((current_event_bits & bits_to_wait_for) != (event_bits_t)0) {
 			wait_condition_met = WIFI_ADAPTER_TRUE;
 		}
 	} else {
@@ -126,9 +157,46 @@ static base_type_t test_wait_condition(const event_bits_t current_event_bits, co
 	return wait_condition_met;
 }
 
-static void task_place_on_unordered_event_list(sq_queue_t *event_lists, const tick_type_t item_value, const tick_type_t tick_to_wait)
+/* This is a special value of si_signo that means that it was the timeout
+ * that awakened the wait... not the receipt of a signal.
+ */
+
+#define SIG_WAIT_TIMEOUT 0xff
+
+static void event_sig_timeout(int argc, uint32_t itcb)
 {
-	if (!event_lists) {
+	/* On many small machines, pointers are encoded and cannot be simply cast
+	 * from uint32_t to struct tcb_s*.  The following union works around this
+	 * (see wdogparm_t).  This odd logic could be conditioned on
+	 * CONFIG_CAN_CAST_POINTERS, but it is not too bad in any case.
+	 */
+
+	union {
+		FAR struct tcb_s *wtcb;
+		uint32_t itcb;
+	} u;
+
+	u.itcb = itcb;
+	ASSERT(u.wtcb);
+
+	/* There may be a race condition -- make sure the task is
+	 * still waiting for a signal
+	 */
+	if (u.wtcb->task_state == TSTATE_WAIT_SIG) {
+		u.wtcb->sigunbinfo.si_signo = SIG_WAIT_TIMEOUT;
+		u.wtcb->sigunbinfo.si_code = SI_TIMER;
+		u.wtcb->sigunbinfo.si_value.sival_int = 0;
+#ifdef CONFIG_SCHED_HAVE_PARENT
+		u.wtcb->sigunbinfo.si_pid = 0;	/* Not applicable */
+		u.wtcb->sigunbinfo.si_status = OK;
+#endif
+		up_unblock_task(u.wtcb);
+	}
+}
+
+static void task_place_on_unordered_event_list(event_group_t *event_group, const tick_type_t item_value, const tick_type_t tick_to_wait)
+{
+	if (!event_group) {
 		return;
 	}
 
@@ -141,13 +209,53 @@ static void task_place_on_unordered_event_list(sq_queue_t *event_lists, const ti
 	}
 	pevent_node->item_value = item_value;
 	pevent_node->pid = getpid();
-	sq_addlast(&pevent_node->node, event_lists);
+
+	/*Add current task to event group*/
+	pthread_mutex_lock(&event_group->event_group_mux);
+	sq_addlast(&pevent_node->node, &event_group->tasks_waiting_for_bits);
+	task_add_event_item(pevent_node);
+	pthread_mutex_unlock(&event_group->event_group_mux);
+
+	/* Block the task based on wait time*/
 	struct tcb_s *ptcp = sched_gettcb(pevent_node->pid);
 	if (!ptcp) {
 		return;
 	}
-	//block task
-	up_block_task(ptcp, TSTATE_TASK_INACTIVE);
+
+	if (tick_to_wait == port_max_delay) {
+		/* Wait here until the event bit be set*/
+		up_block_task(ptcp, TSTATE_TASK_INACTIVE);
+	} else {
+		/* Create a timer to unblock the task when the time is over */
+		ptcp->waitdog = wd_create();
+		DEBUGASSERT(ptcp->waitdog);
+
+		if (ptcp->waitdog) {
+			/* We must disable interrupts here so that
+			 * the time stays valid until the wait begins. */
+			irqstate_t flags = irqsave();
+
+			/* This little bit of nonsense is necessary for some
+			 * processors where sizeof(pointer) < sizeof(uint32_t).
+			 * see wdog.h.
+			 */
+			wdparm_t wdparm;
+			wdparm.pvarg = (FAR void *)ptcp;
+
+			/* Start the watchdog */
+			wd_start(ptcp->waitdog, tick_to_wait, (wdentry_t)event_sig_timeout, 1, wdparm.dwarg);
+
+			/* Now wait for either the signal or the watchdog */
+			up_block_task(ptcp, TSTATE_WAIT_SIG);
+
+			/* We are running again, restore and enbale interrupts */
+			irqrestore(flags);
+
+			/* We no longer need the watchdog */
+			wd_delete(ptcp->waitdog);
+			ptcp->waitdog = NULL;
+		}
+	}
 	return;
 }
 
@@ -168,16 +276,17 @@ static base_type_t task_remove_from_unordered_event_list(event_node_t *event_lis
 
 	/* Remove the event list form the event flag.  Interrupts do not access
 	   event flags. */
-
-	sq_rem((sq_entry_t *) event_list_item, event_list);
+	sq_rem((sq_entry_t *)event_list_item, event_list);
 
 	/* Remove the task from the delayed list and add it to the ready list.  The
 	   scheduler is suspended so interrupts will not be accessing the ready
 	   lists. */
 
 	if (ptcp) {
-		sched_removeblocked(ptcp);
-		sched_addreadytorun(ptcp);
+		if(ptcp->task_state >= FIRST_BLOCKED_STATE && ptcp->task_state < LAST_BLOCKED_STATE) {
+			sched_removeblocked(ptcp);
+			sched_addreadytorun(ptcp);
+		}
 
 		if (ptcp->sched_priority >= current_tcb->sched_priority) {
 			/* Return true if the task removed from the event list has
@@ -192,98 +301,76 @@ static base_type_t task_remove_from_unordered_event_list(event_node_t *event_lis
     return ret;
 }
 
-static tick_type_t task_reset_event_item_value(event_group_t *event_bits)
-{
-	tick_type_t ret = -1;
-
-	if (!event_bits) {
-		return ret;
-	}
-
-	pid_t pid = getpid();
-	event_node_t *pevent_node = (event_node_t *) event_bits->tasks_waiting_for_bits.head;
-	while (pevent_node) {
-		if (pevent_node->pid == pid) {
-			ret = pevent_node->item_value;
-			// reset the value, but i have no idea about what value to be set.
-			pevent_node->item_value = 0;
-			break;
-		}
-		pevent_node = (event_node_t *) pevent_node->node.flink;
-	}
-	return ret;
-}
-
 event_bits_t event_group_wait_bits(event_group_handle_t event_group, const event_bits_t bits_to_wait_for, const base_type_t clear_on_exit, const base_type_t wait_for_all_bits, tick_type_t tick_to_wait)
 {
-	event_group_t *event_bits = (event_group_t *) event_group;
+	event_group_t *event_bits = (event_group_t *)event_group;
 	event_bits_t ret, ucontrol_bits = 0;
 	base_type_t wait_condition_met;
 
-	/* Check the user is not attempting to wait on the bits used by the kernel
-	   itself, and that at least one bit is being requested. */
-
+	/* Disable pre-emption and get the mutex of event group*/
 	sched_lock();
 	pthread_mutex_lock(&event_bits->event_group_mux);
-	{
-		const event_bits_t current_event_bits = event_bits->event_bits;
 
-		/* Check to see if the wait condition is already met or not. */
-		wait_condition_met = test_wait_condition(current_event_bits, bits_to_wait_for, wait_for_all_bits);
-		if (wait_condition_met != WIFI_ADAPTER_FALSE) {
-			/* The wait condition has already been met so there is no need to
-			   block. */
-			ret = current_event_bits;
-			tick_to_wait = (tick_type_t) 0;
+	const event_bits_t current_event_bits = event_bits->event_bits;
 
-			/* Clear the wait bits if requested to do so. */
-			if (clear_on_exit != WIFI_ADAPTER_FALSE) {
-				event_bits->event_bits &= ~bits_to_wait_for;
-			}
-		} else if (tick_to_wait == (tick_type_t) 0) {
-			/* The wait condition has not been met, but no block time was
-			   specified, so just return the current value. */
-			ret = current_event_bits;
-		} else {
-			/* The task is going to block to wait for its required bits to be
-			   set.  ucontrol_bits are used to remember the specified behaviour of
-			   this call to event_group_wait_bits() - for use when the event bits
-			   unblock the task. */
-			if (clear_on_exit != WIFI_ADAPTER_FALSE) {
-				ucontrol_bits |= EVENT_CLEAR_EVENTS_ON_EXIT_BIT;
-			}
+	/* Check to see if the wait condition is already met or not. */
+	wait_condition_met = test_wait_condition(current_event_bits, bits_to_wait_for, wait_for_all_bits);
+	if (wait_condition_met != WIFI_ADAPTER_FALSE) {
+		/* The wait condition has already been met so there is no need to
+		   block. */
+		ret = current_event_bits;
+		tick_to_wait = (tick_type_t)0;
 
-			if (wait_for_all_bits != WIFI_ADAPTER_FALSE) {
-				ucontrol_bits |= EVENT_WAIT_FOR_ALL_BITS;
-			}
-
-			/* Store the bits that the calling task is waiting for in the
-			   task's event list item so the kernel knows when a match is
-			   found.  Then enter the blocked state. */
-			//task_place_on_unordered_event_list( &( event_bits->tasks_waiting_for_bits ), ( bits_to_wait_for | ucontrol_bits ), tick_to_wait );
-
-			/* This is obsolete as it will get set after the task unblocks, but
-			   some compilers mistakenly generate a warning about the variable
-			   being returned without being set if it is not done. */
-			ret = 0;
+		/* Clear the wait bits if requested to do so. */
+		if (clear_on_exit != WIFI_ADAPTER_FALSE) {
+			event_bits->event_bits &= ~bits_to_wait_for;
 		}
+		pthread_mutex_unlock(&event_bits->event_group_mux);
+	} else if (tick_to_wait == (tick_type_t)0) {
+		/* The wait condition has not been met, but no block time was
+		   specified, so just return the current value. */
+		ret = current_event_bits;
+		pthread_mutex_unlock(&event_bits->event_group_mux);
+	} else {
+		/* The task is going to block to wait for its required bits to be
+		   set.  ucontrol_bits are used to remember the specified behaviour of
+		   this call to event_group_wait_bits() - for use when the event bits
+		   unblock the task. */
+		if (clear_on_exit != WIFI_ADAPTER_FALSE) {
+			ucontrol_bits |= EVENT_CLEAR_EVENTS_ON_EXIT_BIT;
+		}
+
+		if (wait_for_all_bits != WIFI_ADAPTER_FALSE) {
+			ucontrol_bits |= EVENT_WAIT_FOR_ALL_BITS;
+		}
+		pthread_mutex_unlock(&event_bits->event_group_mux);
+
+		/* Store the bits that the calling task is waiting for in the
+		task's event list item so the kernel knows when a match is
+		found.  Then enter the blocked state. */
+		task_place_on_unordered_event_list(event_bits, (bits_to_wait_for | ucontrol_bits), tick_to_wait);
+
+		/* This is obsolete as it will get set after the task unblocks, but
+		   some compilers mistakenly generate a warning about the variable
+		   being returned without being set if it is not done. */
+		ret = 0;
 	}
 
-	pthread_mutex_unlock(&event_bits->event_group_mux);
+	/* Recover the pre-emption*/
 	sched_unlock();
 
-	if (tick_to_wait != (tick_type_t) 0) {
-		//task yield
-		task_place_on_unordered_event_list(&(event_bits->tasks_waiting_for_bits), (bits_to_wait_for | ucontrol_bits), tick_to_wait);
+	/* Check the reason of this weaking*/
+	if (tick_to_wait != (tick_type_t)0) {
 
 		/* The task blocked to wait for its required bits to be set - at this
 		   point either the required bits were set or the block time expired.  If
 		   the required bits were set they will have been stored in the task's
 		   event list item, and they should now be retrieved then cleared. */
-		ret = task_reset_event_item_value(event_bits);
 
-		if ((ret & EVENT_UNBLOCKED_DUE_TO_BIT_SET) == (event_bits_t) 0) {
+		ret = task_reset_event_item_value(event_bits);
+		if ((ret & EVENT_UNBLOCKED_DUE_TO_BIT_SET) == (event_bits_t)0) {
 			pthread_mutex_lock(&event_bits->event_group_mux);
+
 			/* The task timed out, just return the current event bit value. */
 			ret = event_bits->event_bits;
 
@@ -299,6 +386,7 @@ event_bits_t event_group_wait_bits(event_group_handle_t event_group, const event
 		} else {
 			/* The task unblocked because the bits were set. */
 		}
+
 		/* The task blocked so control bits may have been set. */
 		ret &= ~EVENT_BITS_CONTROL_BYTES;
 	}
@@ -310,13 +398,12 @@ event_bits_t event_group_clear_bits(event_group_handle_t event_group, const even
 	event_group_t *event_bits = (event_group_t *) event_group;
 	event_bits_t ret;
 
-	/* Check the user is not attempting to clear the bits used by the kernel
-	   itself. */
 	pthread_mutex_lock(&event_bits->event_group_mux);
 
 	/* The value returned is the event group value prior to the bits being
 	   cleared. */
 	ret = event_bits->event_bits;
+
 	/* Clear the bits. */
 	event_bits->event_bits &= ~bits_to_clear;
 	pthread_mutex_unlock(&event_bits->event_group_mux);
@@ -326,7 +413,7 @@ event_bits_t event_group_clear_bits(event_group_handle_t event_group, const even
 event_bits_t event_group_set_bits(event_group_handle_t event_group, const event_bits_t bits_to_set)
 {
 	event_bits_t bits_to_clear = 0, ubits_waited_for, ucontrol_bits;
-	event_group_t *event_bits = (event_group_t *) event_group;
+	event_group_t *event_bits = (event_group_t *)event_group;
 	base_type_t match_found = WIFI_ADAPTER_FALSE;
 
 	/* Check the user is not attempting to set the bits used by the kernel
@@ -340,7 +427,8 @@ event_bits_t event_group_set_bits(event_group_handle_t event_group, const event_
 	/* Set the bits. */
 	event_bits->event_bits |= bits_to_set;
 
-	event_node_t *pevent_node = (event_node_t *) event_bits->tasks_waiting_for_bits.head;
+	/* Scan the queue*/
+	event_node_t *pevent_node = (event_node_t *)event_bits->tasks_waiting_for_bits.head;
 	while (pevent_node) {
 		//get the value
 		ubits_waited_for = pevent_node->item_value;
@@ -349,9 +437,9 @@ event_bits_t event_group_set_bits(event_group_handle_t event_group, const event_
 		ucontrol_bits = ubits_waited_for & EVENT_BITS_CONTROL_BYTES;
 		ubits_waited_for &= ~EVENT_BITS_CONTROL_BYTES;
 
-		if ((ucontrol_bits & EVENT_WAIT_FOR_ALL_BITS) == (event_bits_t) 0) {
+		if ((ucontrol_bits & EVENT_WAIT_FOR_ALL_BITS) == (event_bits_t)0) {
 			/* Just looking for single bit being set. */
-			if ((ubits_waited_for & event_bits->event_bits) != (event_bits_t) 0) {
+			if ((ubits_waited_for & event_bits->event_bits) != (event_bits_t)0) {
 				match_found = WIFI_ADAPTER_TRUE;
 			}
 		} else if ((ubits_waited_for & event_bits->event_bits) == ubits_waited_for) {
@@ -363,7 +451,7 @@ event_bits_t event_group_set_bits(event_group_handle_t event_group, const event_
 
 		if (match_found != WIFI_ADAPTER_FALSE) {
 			/* The bits match.  Should the bits be cleared on exit? */
-			if ((ucontrol_bits & EVENT_CLEAR_EVENTS_ON_EXIT_BIT) != (event_bits_t) 0) {
+			if ((ucontrol_bits & EVENT_CLEAR_EVENTS_ON_EXIT_BIT) != (event_bits_t)0) {
 				bits_to_clear |= ubits_waited_for;
 			}
 
@@ -376,7 +464,7 @@ event_bits_t event_group_set_bits(event_group_handle_t event_group, const event_
 			(void)task_remove_from_unordered_event_list(pevent_node, &event_bits->tasks_waiting_for_bits, event_bits->event_bits | EVENT_UNBLOCKED_DUE_TO_BIT_SET);
 		}
 
-		pevent_node = (event_node_t *) pevent_node->node.flink;
+		pevent_node = (event_node_t *)pevent_node->node.flink;
 	}
 
 	/* Clear any bits that matched when the EVENT_CLEAR_EVENTS_ON_EXIT_BIT
@@ -391,21 +479,23 @@ event_bits_t event_group_set_bits(event_group_handle_t event_group, const event_
 
 void event_group_delete(event_group_handle_t event_group)
 {
-	event_group_t *event_bits = (event_group_t *) event_group;
+	event_group_t *event_bits = (event_group_t *)event_group;
 	sq_queue_t *ptasks_waiting_for_bits = &(event_bits->tasks_waiting_for_bits);
 	event_node_t *pevent_node = NULL;
 	event_node_t *pevent_node_temp = NULL;
 
 	sched_lock();
 	pthread_mutex_lock(&event_bits->event_group_mux);
-	pevent_node = (event_node_t *) event_bits->tasks_waiting_for_bits.head;
+	pevent_node = (event_node_t *)event_bits->tasks_waiting_for_bits.head;
 	while (pevent_node) {
 		task_remove_from_unordered_event_list(pevent_node, ptasks_waiting_for_bits, EVENT_UNBLOCKED_DUE_TO_BIT_SET);
 		pevent_node_temp = pevent_node;
-		pevent_node = (event_node_t *) pevent_node_temp->node.flink;
+		pevent_node = (event_node_t *)pevent_node_temp->node.flink;
+		event_data[pevent_node_temp->pid] = NULL;
 		free(pevent_node_temp);
 	}
-	pthread_mutex_unlock(&event_bits->event_group_mux);	//Exit mux of event group before deleting it
+
+	pthread_mutex_unlock(&event_bits->event_group_mux);
 	free(event_bits);
 	sched_unlock();
 }

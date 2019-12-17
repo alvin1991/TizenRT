@@ -88,6 +88,7 @@
 
 int net_dupsd(int sockfd)
 {
+#if 0 // To Do: dup is not working until BIND_TASK is implmented
 	struct socket *sock1 = NULL;
 	struct socket *sock2 = NULL;
 	struct netconn *conn = NULL;
@@ -113,6 +114,10 @@ int net_dupsd(int sockfd)
 	/* Allocate a new netconn with same type as that of sock1 */
 
 	conn = netconn_new(sock1->conn->type);
+	if (!conn) {
+		err = ENOMEM;
+		goto errout;
+	}
 
 	sockfd2 = alloc_socket(conn, 0);
 	if (sockfd2 < 0) {
@@ -143,6 +148,7 @@ int net_dupsd(int sockfd)
 errout:
 	sched_unlock();
 	errno = err;
+	#endif
 	return ERROR;
 }
 

@@ -24,7 +24,7 @@
 #include <net/if.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include <net/lwip/netif.h>
+#include "lwip/netif.h"
 #include <ocstack.h>
 #include "uuid/uuid.h"
 
@@ -96,4 +96,10 @@ error:
 unsigned int if_nametoindex(const char *ifname)
 {
 	return 0;					// TODO: Now supports only 1 device
+}
+
+const char *gai_strerror(int errcode)
+{
+	static const char *n_str = "dummy gai_strerror";
+	return n_str;
 }

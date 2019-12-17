@@ -373,14 +373,6 @@ config DOWNLOAD_IMAGE
 	---help---
 		Create download image based on RAW binary
 
-config SMARTFS_IMAGE
-	bool "Make smartfs binary image"
-	select RAW_BINARY
-	depends on !WINDOWS_NATIVE
-	---help---
-		Generate smartfs image by using nxfuse tools
-		Note that libfuse-dev should be installed on your build system
-
 endmenu # Binary Output Formats
 
 menu "Customize Header Files"
@@ -554,8 +546,17 @@ menu "Database"
 source "$FRAMEWORK_DIR/src/arastorage/Kconfig"
 endmenu
 
+menu "AraUI Framework"
+source "$FRAMEWORK_DIR/src/araui/Kconfig"
+endmenu
+
 menu "Memory Management"
 source mm/Kconfig
+endmenu
+
+menu "Work Queue Support"
+	depends on !DISABLE_SIGNALS
+source wqueue/Kconfig
 endmenu
 
 menu "Power Management"
@@ -607,6 +608,10 @@ menu "Binary manager"
 source kernel/binary_manager/Kconfig
 endmenu
 
+menu "Task Monitor"
+source kernel/task_monitor/Kconfig
+endmenu
+
 menu "Task manager"
 source "$FRAMEWORK_DIR/src/task_manager/Kconfig"
 endmenu
@@ -617,6 +622,10 @@ endmenu
 
 menu "Messaging Framework"
 source "$FRAMEWORK_DIR/src/messaging/Kconfig"
+endmenu
+
+menu "Preference Support"
+source "$FRAMEWORK_DIR/src/preference/Kconfig"
 endmenu
 
 menu "Things Management"

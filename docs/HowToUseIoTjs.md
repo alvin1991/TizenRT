@@ -1,14 +1,14 @@
 # How to use IoT.js
 
+IoT.js is an open source software platform for Internet of Things with JavaScript.
+For more details, please refer to http://www.iotjs.net or shipped [README](..//external/iotjs/README.md) in sources.
 
-IoT.js is an open source software platform
-for Internet of Things with JavaScript.
-
-For more mode detailed information, please check:
-http://www.iotjs.net
-
-Or shipped [README](..//external/iotjs/README.md) in sources.
-
+## Contents
+- [Use reference configuration](#use-reference-configuration)
+- [To enable IoT.js feature](#to-enable-iot.js-feature)
+- [How to load scripts](#how-to-load-scripts)
+- [How to configure Network](#how-to-configure-network)
+- [Resources](#resources)
 
 ## Use reference configuration
 
@@ -20,7 +20,7 @@ Or shipped [README](..//external/iotjs/README.md) in sources.
 
 ## To enable IoT.js feature
 
-Using menuconfig an example can be used to selected needed feature.
+To select the required feature, you can use the menuconfig as in the example below:
 
     make menuconfig  
     # Application Configuration  --->  
@@ -36,22 +36,16 @@ Using menuconfig an example can be used to selected needed feature.
 
 ## How to load scripts
 
-File can be loaded for different locations,
-For convenience, it is recommended to use the approach of adding a ROM partition as explained in
-[HowToUseROMFS.md](HowToUseROMFS.md)
+File can be loaded for different locations. For convenience, it is recommended to use the approach of adding a ROM partition as explained in
+[HowToUseROMFS.md](HowToUseROMFS.md). Then place your script(s) in tools/fs/contents-romfs, such as, for instance:
 
-Then place your script(s) in tools/fs/contents, for instance:
-
-    cat tools/fs/contents/example/index.js 
+    cat tools/fs/contents-romfs/example/index.js 
     console.log(JSON.stringify(process));
 
 
 ## How to configure Network
 
-WiFi can be also enabled on boot if you want to join a network 
-before running the script.
-
-You need to run "make menuconfig" again and edit credentials.
+WiFi can be also enabled on boot if you want to join a network before running the script. You need to run "make menuconfig" again and edit credentials.
 
     make menuconfig  
     # Application Configuration  --->  
@@ -71,7 +65,7 @@ For values of "Authentication type" and "Encryption type", use <Help> menu to fi
 your WiFi configurations. For example, 4 for Authentication type of "WPA and WPA2 PSK", and 4 for "Encryption type of "TKIP".
 
 
-## Resources:
+## Resources
 
 * https://github.com/Samsung/iotjs/wiki/Build-for-ARTIK053-TizenRT
 * https://archive.fosdem.org/2018/schedule/event/tizen_rt/

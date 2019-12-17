@@ -84,16 +84,15 @@ static inline int fs_checkfd(FAR struct tcb_s *tcb, int fd, int oflags)
 {
 	FAR struct file *filep;
 	FAR struct inode *inode;
+	int ret;
 
 	DEBUGASSERT(tcb && tcb->group);
 
 	/* Get the file structure corresponding to the file descriptor. */
 
-	filep = fs_getfilep(fd);
-	if (!filep) {
-		/* The errno value has already been set */
-
-		return ERROR;
+	ret = fs_getfilep(fd, &filep);
+	if (ret < 0) {
+		return ret;
 	}
 
 	/* Get the inode associated with the file descriptor.  This should
@@ -226,10 +225,6 @@ FAR struct file_struct *fs_fdopen(int fd, int oflags, FAR struct tcb_s *tcb)
 	for (i = 0; i < CONFIG_NFILE_STREAMS; i++) {
 		stream = &slist->sl_streams[i];
 		if (stream->fs_fd < 0) {
-			/* Zero the structure */
-
-			memset(stream, 0, sizeof(FILE));
-
 #if CONFIG_STDIO_BUFFER_SIZE > 0
 			/* Initialize the semaphore the manages access to the buffer */
 

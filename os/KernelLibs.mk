@@ -68,9 +68,10 @@ USERLIBS =
 
 TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libstubs$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libkc$(LIBEXT)
 TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libkmm$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libkarch$(LIBEXT)
+TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libkwque$(LIBEXT)
 USERLIBS  += $(LIBRARIES_DIR)$(DELIM)libproxies$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libuc$(LIBEXT)
 USERLIBS  += $(LIBRARIES_DIR)$(DELIM)libumm$(LIBEXT) $(LIBRARIES_DIR)$(DELIM)libuarch$(LIBEXT)
-
+USERLIBS  += $(LIBRARIES_DIR)$(DELIM)libuwque$(LIBEXT)
 
 # Add libraries for C++ support.  CXX, CXXFLAGS, and COMPILEXX must
 # be defined in Make.defs for this to work!
@@ -91,6 +92,7 @@ TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libse$(LIBEXT)
 endif
 
 # Add libraries for compression support
+ifeq ($(CONFIG_COMPRESSED_BINARY),y)
 TINYARALIBS += $(LIBRARIES_DIR)$(DELIM)libcompression$(LIBEXT)
 endif
 

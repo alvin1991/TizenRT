@@ -98,7 +98,6 @@
 
 extern const uint32_t g_idle_topstack;
 #include <tinyara/mm/heap_regioninfo.h>
-extern bool heapx_is_init[CONFIG_MM_NHEAPS];
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -394,14 +393,7 @@ void os_start(void)
 		 * the user-mode memory allocator.
 		 */
 		up_allocate_heap(&heap_start, &heap_size);
-
-#if CONFIG_MM_REGIONS > 1
-		mm_initialize(&BASE_HEAP[regionx_heap_idx[0]], heap_start, heap_size);
-		heapx_is_init[regionx_heap_idx[0]] = true;
-		up_addregion();
-#else
 		kumm_initialize(heap_start, heap_size);
-#endif
 #endif
 
 #ifdef CONFIG_MM_KERNEL_HEAP
@@ -424,6 +416,8 @@ void os_start(void)
 #endif
 	}
 #endif
+
+	up_addregion();
 
 #ifdef CONFIG_APP_BINARY_SEPARATION
 	/* If app binary separation is enabled, then each application will have its own RAM

@@ -15,6 +15,7 @@
  * language governing permissions and limitations under the License.
  *
  ****************************************************************************/
+#include <tinyara/config.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -26,12 +27,13 @@
 #include <tinyara/irq.h>
 #include <tinyara/kmalloc.h>
 #include <tinyara/clock.h>
-#include <tinyara/net/net.h>
 #include <arpa/inet.h>
-#include <net/lwip/netif/etharp.h>
-#include <net/lwip/ethip6.h>
-#include <net/lwip/igmp.h>
-
+#ifndef CONFIG_NET_NETMGR
+#include <tinyara/net/netdev.h>
+#include "lwip/igmp.h"
+#include "lwip/etharp.h"
+#include "lwip/ethip6.h"
+#endif
 #include "debug_scsc.h"
 #include "netif.h"
 #include "dev.h"
@@ -42,7 +44,7 @@
 #define IP4_OFFSET_TO_TOS_FIELD 1
 
 /* Net Device callback operations */
-static int slsi_net_open(struct netif *dev)
+int slsi_net_open(struct netdev *dev)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct slsi_dev *sdev = ndev_vif->sdev;
@@ -79,18 +81,26 @@ static int slsi_net_open(struct netif *dev)
 #endif
 	}
 
+#ifdef CONFIG_NET_NETMGR
+	(void)netdev_set_hwaddr(dev, sdev->netdev_addresses[SLSI_NET_INDEX_WLAN], IFHWADDRLEN);
+#else
 	SLSI_ETHER_COPY(dev->d_mac.ether_addr_octet, sdev->netdev_addresses[SLSI_NET_INDEX_WLAN]);
+#endif
+
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 	ndev_vif->is_available = true;
 	sdev->netdev_up_count++;
 
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 
+#ifndef CONFIG_NET_NETMGR
 	memcpy(dev->hwaddr, sdev->hw_addr, ETHARP_HWADDR_LEN);
 	dev->flags |= NETIF_FLAG_ETHARP | NETIF_FLAG_ETHERNET | NETIF_FLAG_BROADCAST | NETIF_FLAG_IGMP;
 
 	/* Put the network interface in the UP state */
 	netif_set_up(dev);
+#endif
+
 	reinit_completion(&ndev_vif->sig_wait.completion);
 
 	/* Send interface enabled event to supplicant if it is present. This could happen if ifdown-ifup is done
@@ -102,16 +112,16 @@ static int slsi_net_open(struct netif *dev)
 	return 0;
 }
 
-static int slsi_net_stop(struct netif *dev)
+int slsi_net_stop(struct netdev *dev)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct slsi_dev *sdev = ndev_vif->sdev;
 
 	SLSI_NET_DBG1(dev, SLSI_NETDEV, "\n");
-
+#ifndef CONFIG_NET_NETMGR
 	/* Put the network interface in the DOWN state */
 	netif_set_down(dev);
-
+#endif
 	if (!ndev_vif->is_available) {
 		/* May have been taken out by the Chip going down */
 		SLSI_NET_DBG1(dev, SLSI_NETDEV, "netdev vif not available.\n");
@@ -132,7 +142,7 @@ static int slsi_net_stop(struct netif *dev)
 }
 
 /* This is called after the WE handlers */
-static int slsi_net_ioctl(struct netif *dev, struct ifreq *rq, int cmd)
+static int slsi_net_ioctl(struct netdev *dev, struct ifreq *rq, int cmd)
 {
 	SLSI_NET_DBG1(dev, SLSI_NETDEV, "ioctl cmd:0x%.4x\n", cmd);
 
@@ -166,7 +176,7 @@ static u16 slsi_get_priority_from_tos(u8 *frame, u16 proto)
 	}
 }
 
-static bool slsi_net_downgrade_ac(struct netif *dev, struct max_buff *mbuf)
+static bool slsi_net_downgrade_ac(struct netdev *dev, struct max_buff *mbuf)
 {
 	SLSI_UNUSED_PARAMETER(dev);
 
@@ -252,7 +262,7 @@ int slsi_ac_to_tids(enum slsi_traffic_q ac, int *tids)
 	return 0;
 }
 
-static void slsi_net_downgrade_pri(struct netif *dev, struct slsi_peer *peer, struct max_buff *mbuf)
+static void slsi_net_downgrade_pri(struct netdev *dev, struct slsi_peer *peer, struct max_buff *mbuf)
 {
 	/* in case we are a client downgrade the ac if acm is
 	 * set and tspec is not established
@@ -266,7 +276,7 @@ static void slsi_net_downgrade_pri(struct netif *dev, struct slsi_peer *peer, st
 	SLSI_NET_DBG3(dev, SLSI_TX, "To UP:%d\n", mbuf->user_priority);
 }
 
-static u16 slsi_net_select_queue(struct netif *dev, struct max_buff *mbuf)
+static u16 slsi_net_select_queue(struct netdev *dev, struct max_buff *mbuf)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct slsi_dev *sdev = ndev_vif->sdev;
@@ -334,7 +344,7 @@ int eth_send_eapol(const u8 *src, const u8 *dst, const u8 *buf, u16 len, u16 pro
 	struct max_buff *mbuf = NULL;
 	int alloc_size;
 	struct slsi_dev *sdev = cm_ctx.sdev;
-	struct netif *dev;
+	struct netdev *dev;
 	struct netdev_vif *ndev_vif;
 
 	if (!sdev) {
@@ -371,6 +381,140 @@ int eth_send_eapol(const u8 *src, const u8 *dst, const u8 *buf, u16 len, u16 pro
 	return ERR_OK;
 }
 
+#define MULTICAST_IP_TO_MAC(ip) { (u8)0x01, \
+				  (u8)0x00, \
+				  (u8)0x5e, \
+				  (u8)((ip)[1] & 0x7F), \
+				  (u8)(ip)[2], \
+				  (u8)(ip)[3] \
+}
+
+
+#ifdef CONFIG_NET_NETMGR
+
+static void slsi_free_netdev(struct netdev *dev)
+{
+	if (dev->priv) {
+		kmm_free(dev->priv);
+	}
+
+	kmm_free(dev);
+}
+
+int slsi_linkoutput(struct netdev *dev, uint8_t *data, uint16_t dlen)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct slsi_dev *sdev = ndev_vif->sdev;
+	struct max_buff *mbuf = NULL;
+	int ret = ERR_OK;
+	u8 *mbuf_data;
+
+	SLSI_INCR_DATA_PATH_STATS(sdev->dp_stats.tx_linkoutput_packets);
+
+	if (!ndev_vif->is_available) {
+		SLSI_INCR_DATA_PATH_STATS(sdev->dp_stats.tx_drop_vif_not_available);
+		SLSI_NET_ERR(dev, "netdev vif not available\n");
+
+		ret = ERR_CONN;
+		goto exit;
+	}
+	if (data == NULL || dlen == 0) {
+		SLSI_INCR_DATA_PATH_STATS(sdev->dp_stats.tx_drop_invalid_pbuf);
+		SLSI_NET_ERR(dev, "Invalid pbuf\n");
+
+		ret = ERR_VAL;
+		goto exit;
+	}
+	SLSI_NET_DBG3(dev, SLSI_TX, "tot_len: %d\n", dlen);
+
+	if (sdev->tx_mbuf == NULL) {
+		SLSI_INCR_DATA_PATH_STATS(sdev->dp_stats.tx_drop_null_mbuf);
+		SLSI_NET_ERR(dev, "TX mbuf is NULL\n");
+
+		ret = ERR_MEM;
+		goto exit;
+	}
+	if (dlen + (fapi_sig_size(ma_unitdata_req) + 160) > SLSI_TX_MBUF_SIZE) {
+		SLSI_INCR_DATA_PATH_STATS(sdev->dp_stats.tx_drop_large_pbuf);
+		SLSI_NET_ERR(dev, "Large packet: %d\n", dlen);
+
+		ret = ERR_VAL;
+		goto exit;
+	}
+
+	mbuf = sdev->tx_mbuf;
+	mbuf_reset(mbuf);
+	mbuf_reserve_headroom(mbuf, (fapi_sig_size(ma_unitdata_req) + 160));
+	mbuf_put(mbuf, dlen);
+
+	mbuf_data = slsi_mbuf_get_data(mbuf);
+	memcpy(mbuf_data, data, dlen);
+
+	mbuf_set_mac_header(mbuf, 0);
+	mbuf->ac_queue = slsi_net_select_queue(dev, mbuf);
+
+	if (mbuf->ac_queue == SLSI_NETIF_Q_DISCARD) {
+		SLSI_INCR_DATA_PATH_STATS(sdev->dp_stats.tx_drop_discard_queue);
+
+		ret = ERR_CONN;
+		goto exit;
+	}
+
+	ret = slsi_tx_data(ndev_vif->sdev, dev, mbuf);
+	if (ret != 0) {
+		ret = ERR_MEM;
+		goto exit;
+	}
+
+	SLSI_INCR_DATA_PATH_STATS(sdev->dp_stats.tx_success_packet);
+
+	return ERR_OK;
+exit:
+	return ret;
+}
+
+int slsi_set_multicast_list(struct netdev *dev, const struct in_addr *group, netdev_mac_filter_action action)
+{
+	struct netdev_vif *ndev_vif = netdev_priv(dev);
+	struct slsi_dev *sdev = ndev_vif->sdev;
+	u8 addr[ETH_ALEN] = MULTICAST_IP_TO_MAC((u8 *)group);
+
+	if (ndev_vif->vif_type != FAPI_VIFTYPE_STATION) {
+		return 0;
+	}
+
+	if (!ndev_vif->is_available) {
+		SLSI_NET_DBG1(dev, SLSI_NETDEV, "Not available\n");
+		return 0;
+	}
+
+	if (NM_ADD_MAC_FILTER) {
+		SLSI_NET_DBG3(dev, SLSI_NETDEV, "Add filter for mac address = %pM\n", addr);
+		return slsi_set_multicast_packet_filters(sdev, dev, addr);
+	} else {
+		SLSI_NET_DBG3(dev, SLSI_NETDEV, "Clear filter for mac address = %pM\n", addr);
+		return slsi_clear_packet_filters(sdev, dev);
+	}
+}
+
+extern struct netdev *slsidrv_register_dev(int size);
+static struct netdev *slsi_alloc_netdev(int sizeof_priv)
+{
+	return slsidrv_register_dev(sizeof_priv);
+}
+
+#else /*  CONFIG_NET_NETMGR */
+
+static void slsi_free_netdev(struct netdev *dev)
+{
+	if (dev->d_private) {
+		kmm_free(dev->d_private);
+	}
+
+	kmm_free(dev);
+}
+
+
 void slsi_ethernetif_input(struct netif *dev, u8_t *frame_ptr, u16_t len)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
@@ -378,11 +522,11 @@ void slsi_ethernetif_input(struct netif *dev, u8_t *frame_ptr, u16_t len)
 
 	SLSI_MUTEX_LOCK(sdev->rx_data_mutex);
 
-	dev->d_buf = frame_ptr;
-	dev->d_len = len;
+	//dev->d_buf = frame_ptr;
+	//dev->d_len = len;
 
 	SLSI_INCR_DATA_PATH_STATS(sdev->dp_stats.rx_num_packets_given_to_lwip);
-	ethernetif_input(dev);
+	ethernetif_input(dev, frame_ptr, len);
 
 	SLSI_MUTEX_UNLOCK(sdev->rx_data_mutex);
 }
@@ -477,13 +621,6 @@ exit:
 	return ret;
 }
 
-#define MULTICAST_IP_TO_MAC(ip) { (u8)0x01, \
-				  (u8)0x00, \
-				  (u8)0x5e, \
-				  (u8)((ip)[1] & 0x7F), \
-				  (u8)(ip)[2], \
-				  (u8)(ip)[3] \
-}
 static err_t slsi_set_multicast_list(struct netif *dev, const ip4_addr_t *group, u8_t action)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
@@ -508,14 +645,14 @@ static err_t slsi_set_multicast_list(struct netif *dev, const ip4_addr_t *group,
 	}
 }
 
-static struct netif *slsi_alloc_netdev(int sizeof_priv)
+static struct netdev *slsi_alloc_netdev(int sizeof_priv)
 {
-	struct netif *dev;
+	struct netdev *dev;
 	void *priv;
 
 	SLSI_INFO_NODEV("slsi_alloc_netdev\n");
 
-	dev = kmm_zalloc(sizeof(struct netif));
+	dev = kmm_zalloc(sizeof(struct netdev));
 	if (dev == NULL) {
 		return NULL;
 	}
@@ -544,19 +681,13 @@ static struct netif *slsi_alloc_netdev(int sizeof_priv)
 
 	return dev;
 }
+#endif
 
-static void slsi_free_netdev(struct netif *dev)
-{
-	if (dev->d_private) {
-		kmm_free(dev->d_private);
-	}
 
-	kmm_free(dev);
-}
 
 static int slsi_netif_add_locked(struct slsi_dev *sdev, int ifnum)
 {
-	struct netif *dev = NULL;
+	struct netdev *dev = NULL;
 	struct netdev_vif *ndev_vif;
 	int alloc_size, ret;
 	int i;
@@ -646,7 +777,11 @@ static int slsi_netif_add_locked(struct slsi_dev *sdev, int ifnum)
 	}
 
 	if (ifnum < CONFIG_SCSC_WLAN_MAX_INTERFACES + 1) {
+#ifdef CONFIG_NET_NETMGR
+		netdev_set_hwaddr(dev, sdev->netdev_addresses[ifnum], ETH_ALEN);
+#else
 		SLSI_ETHER_COPY(dev->d_mac.ether_addr_octet, sdev->netdev_addresses[ifnum]);
+#endif
 		sdev->netdev[ifnum] = dev;
 	} else {
 		goto exit_with_error;
@@ -705,26 +840,27 @@ int slsi_netif_init(struct slsi_dev *sdev)
 	return 0;
 }
 
-void up_wlan_init(struct netif *dev);
+void up_wlan_init(struct netdev *dev);
 
-static int slsi_netif_register_locked(struct slsi_dev *sdev, struct netif *dev)
+static int slsi_netif_register_locked(struct slsi_dev *sdev, struct netdev *dev)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	int err = 0;
 
 	WARN_ON(!SLSI_MUTEX_IS_LOCKED(sdev->netdev_add_remove_mutex));
-	SLSI_INFO_NODEV("Register:" SLSI_MAC_FORMAT "\n", SLSI_MAC_STR(dev->d_mac.ether_addr_octet));
+	SLSI_INFO_NODEV("Register:" SLSI_MAC_FORMAT "\n", SLSI_MAC_STR(netdev_get_hwaddr_ptr(dev)));
 	if (ndev_vif->is_registered) {
-		SLSI_INFO_NODEV("Register:" SLSI_MAC_FORMAT " Failed: Already registered\n", SLSI_MAC_STR(dev->d_mac.ether_addr_octet));
+		SLSI_INFO_NODEV("Register:" SLSI_MAC_FORMAT " Failed: Already registered\n", SLSI_MAC_STR(netdev_get_hwaddr_ptr(dev)));
 		return 0;
 	}
-
+#ifndef CONFIG_NET_NETMGR
 	up_wlan_init(dev);
+#endif
 
 	return err;
 }
 
-int slsi_netif_register(struct slsi_dev *sdev, struct netif *dev)
+int slsi_netif_register(struct slsi_dev *sdev, struct netdev *dev)
 {
 	int err;
 
@@ -734,12 +870,12 @@ int slsi_netif_register(struct slsi_dev *sdev, struct netif *dev)
 	return err;
 }
 
-static void slsi_netif_remove_locked(struct slsi_dev *sdev, struct netif *dev)
+static void slsi_netif_remove_locked(struct slsi_dev *sdev, struct netdev *dev)
 {
 	int i;
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 
-	SLSI_NET_DBG1(dev, SLSI_NETDEV, "Unregister:" SLSI_MAC_FORMAT "\n", SLSI_MAC_STR(dev->d_mac.ether_addr_octet));
+	SLSI_NET_DBG1(dev, SLSI_NETDEV, "Unregister:" SLSI_MAC_FORMAT "\n", SLSI_MAC_STR(netdev_get_hwaddr_ptr(dev)));
 
 	WARN_ON(!SLSI_MUTEX_IS_LOCKED(sdev->netdev_add_remove_mutex));
 
@@ -780,7 +916,7 @@ static void slsi_netif_remove_locked(struct slsi_dev *sdev, struct netif *dev)
 	slsi_free_netdev(dev);
 }
 
-void slsi_netif_remove(struct slsi_dev *sdev, struct netif *dev)
+void slsi_netif_remove(struct slsi_dev *sdev, struct netdev *dev)
 {
 	SLSI_MUTEX_LOCK(sdev->netdev_add_remove_mutex);
 	slsi_netif_remove_locked(sdev, dev);

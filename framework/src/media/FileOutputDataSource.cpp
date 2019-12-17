@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <debug.h>
 #include <media/FileOutputDataSource.h>
-#include "utils/MediaUtils.h"
+#include <media/MediaUtils.h>
 
 #ifndef CONFIG_FILE_DATASOURCE_STREAM_BUFFER_SIZE
 #define CONFIG_FILE_DATASOURCE_STREAM_BUFFER_SIZE 4096
@@ -91,23 +91,24 @@ bool FileOutputDataSource::open()
 bool FileOutputDataSource::close()
 {
 	switch (getAudioType()) {
-		case AUDIO_TYPE_WAVE: {
-			fflush(mFp);
-			long ret = ftell(mFp);
-			if (ret < 0) {
-				meddbg("file size could not be found errno : %d\n", errno);
-				break;
-			}
-			unsigned int fileSize = (unsigned int)ret;
-			if (!utils::writeWavHeader(mFp, getChannels(), getSampleRate(), getPcmFormat(), fileSize)) {
-				meddbg("wav header write to failed\n");
-			}
+	case AUDIO_TYPE_WAVE: {
+		fflush(mFp);
+		long ret = ftell(mFp);
+		if (ret < 0) {
+			meddbg("file size could not be found errno : %d\n", errno);
 			break;
 		}
-		default:
-			/* Don't set any encoder for unsupported formats */
-			break;
+		unsigned int fileSize = (unsigned int)ret;
+		if (!utils::writeWavHeader(mFp, getChannels(), getSampleRate(), getPcmFormat(), fileSize)) {
+			meddbg("wav header write to failed\n");
+		}
+		break;
 	}
+	default:
+		/* Don't set any encoder for unsupported formats */
+		break;
+	}
+
 	if (mFp) {
 		int ret = fclose(mFp);
 		if (ret == OK) {
