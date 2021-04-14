@@ -77,13 +77,13 @@
 
 /* Redefine memory alloc function when using multi heap */
 
-#if CONFIG_MM_NHEAPS > 1 && CONFIG_MM_REGIONS > 1
+#if CONFIG_KMM_NHEAPS > 1 && CONFIG_KMM_REGIONS > 1
 #undef  kmm_malloc
 #undef  kmm_zalloc
 #undef  kmm_realloc
-#define kmm_malloc(s)     malloc_at(CONFIG_FS_TMPFS_HEAP_INDEX, s)
-#define kmm_zalloc(s)     zalloc_at(CONFIG_FS_TMPFS_HEAP_INDEX, s)
-#define kmm_realloc(p, s) realloc_at(CONFIG_FS_TMPFS_HEAP_INDEX, p, s)
+#define kmm_malloc(s)     kmm_malloc_at(CONFIG_FS_TMPFS_HEAP_INDEX, s)
+#define kmm_zalloc(s)     kmm_zalloc_at(CONFIG_FS_TMPFS_HEAP_INDEX, s)
+#define kmm_realloc(p, s) kmm_realloc_at(CONFIG_FS_TMPFS_HEAP_INDEX, p, s)
 #endif
 
 /****************************************************************************

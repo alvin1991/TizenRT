@@ -126,7 +126,7 @@
 #define MCAST_PORT 5555
 #define MCAST_GROUP "225.1.1.1"
 
-#define NUM_PACKETS     50
+#define NUM_PACKETS 50
 #define LOCAL_DEVICE "192.168.2.10"
 #define NETTEST_MAX_PACKETS 20000
 
@@ -148,6 +148,7 @@ uint32_t total_data;
 #define NETTEST_PROTO_UDP "udp"
 #define NETTEST_PROTO_BROADCAST "brc"
 #define NETTEST_PROTO_MULTICAST "mtc"
+#define NETTEST_PROTO_STRESS "str"
 
 typedef enum {
 	NT_NONE,
@@ -155,6 +156,7 @@ typedef enum {
 	NT_UDP,
 	NT_BROADCAST,
 	NT_MULTICAST,
+	NT_STRESS,
 } nettest_proto_e;
 
 /****************************************************************************
@@ -174,6 +176,7 @@ static void show_usage(void)
 	printf("\tudp: UDP\n");
 	printf("\tmtc: MULTICAST\n");
 	printf("\tbrc: BROADCAST\n");
+	printf("\tstr: STRESS TEST\n");
 
 	printf("ADDRESS\n");
 	printf("\tAddress to bind if mode is server\n");
@@ -208,13 +211,17 @@ static void show_usage(void)
 
 	printf("\tRun Multicast Receiver\n");
 	printf("\t\tTASH>>nettest 1 mtc 224.1.1.1 5555 0 wl1\n");
+
+	printf("\tRun Stress Test\n");
+	printf("\t\tTASH>>nettest 2 str 192.168.1.226 5555\n");
+	printf("\t\tNOTE: shutdown() is called at random time between 7 and 17 secs.\n");
+	printf("\t\tand heapinfo is printed out for 10 shutdown() calls\n");
 	printf("\n\n");
 }
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
-
 
 /* ------------------------------------------------------------ */
 /*                                                              */
@@ -374,6 +381,12 @@ void ipmcast_sender_thread(int num_packets, uint32_t sleep_time, const char *int
 	groupSock.sin_addr.s_addr = inet_addr(g_app_target_addr);
 	groupSock.sin_port = htons(g_app_target_port);
 
+	if (setsockopt(sd, IPPROTO_IP, IP_MULTICAST_IF, (char *)&localInterface, sizeof(localInterface)) < 0) {
+		printf("[MCASTCLIENT] [ERR] Failed setting local interface");
+		goto out_with_socket;
+	}
+	printf("[MCASTCLIENT] setsockopt IP_MULTICAST_IF success\n");
+
 	/*
 	 * Set local interface for outbound multicast datagrams.
 	 * The IP address specified must be associated with a local,
@@ -387,12 +400,6 @@ void ipmcast_sender_thread(int num_packets, uint32_t sleep_time, const char *int
 	printf("[MCASTCLIENT] bind interface(%s)\n", intf);
 	printf("[MCASTCLIENT] group address(%s)\n", g_app_target_addr);
 	printf("[MCASTCLIENT] port(%d)\n", g_app_target_port);
-
-	if (setsockopt(sd, IPPROTO_IP, IP_MULTICAST_IF, (char *)&localInterface, sizeof(localInterface)) < 0) {
-		printf("[MCASTCLIENT] [ERR] Failed setting local interface");
-		goto out_with_socket;
-	}
-	printf("[MCASTCLIENT] setsockopt IP_MULTICAST_IF success\n");
 
 	/*
 	 * Send a message to the multicast group specified by the
@@ -461,9 +468,16 @@ void ipmcast_receiver_thread(int num_packets, const char *intf)
 	 */
 	memset((char *)&localSock, 0, sizeof(localSock));
 	localSock.sin_family = AF_INET;
-	localSock.sin_port = htons(g_app_target_port);;
+	localSock.sin_port = htons(g_app_target_port);
 	localSock.sin_addr.s_addr = INADDR_ANY;
 
+	group.imr_interface.s_addr = INADDR_ANY;
+	group.imr_multiaddr.s_addr = inet_addr(g_app_target_addr);
+	if (setsockopt(sd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&group, sizeof(group)) < 0) {
+		printf("[MCASTSERV] fail: adding multicast group %d\n", errno);
+		goto out_with_socket;
+	}
+		
 	if (bind(sd, (struct sockaddr *)&localSock, sizeof(localSock))) {
 		printf("[MCASTSERV] ERR: binding datagram socket\n");
 		goto out_with_socket;
@@ -486,12 +500,6 @@ void ipmcast_receiver_thread(int num_packets, const char *intf)
 	printf("[MCASTSERV] bind interface(%s)\n", intf);
 	printf("[MCASTSERV] group address(%s)\n", g_app_target_addr);
 	printf("[MCASTSERV] port(%d)\n", g_app_target_port);
-
-	group.imr_multiaddr.s_addr = inet_addr(g_app_target_addr);
-	if (setsockopt(sd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&group, sizeof(group)) < 0) {
-		printf("[MCASTSERV] fail: adding multicast group %d\n", errno);
-		goto out_with_socket;
-	}
 
 	printf("[MCASTSERV] join multicast success\n");
 	/*
@@ -581,7 +589,7 @@ int udp_server_thread(int num_packets)
 				}
 				count++;
 				printf("[UDPSERV] - Received Msg # %d] Received Msg (%s) data size (%d)\n",
-					count, buf, nbytes);
+					   count, buf, nbytes);
 				if (num_packets == 0) {
 					continue;
 				}
@@ -730,7 +738,7 @@ void tcp_server_thread(int num_packets)
 		}
 		count++;
 		printf("[TCPSERV] - Received Msg # %d] Received Msg (%s) data size (%d)\n",
-					count, msg, nbytes);
+			   count, msg, nbytes);
 		if (num_packets == 0) {
 			continue;
 		}
@@ -823,6 +831,8 @@ out_with_socket:
 	return;
 }
 
+extern void nettest_stress(char *addr, int port);
+
 /* Sample App to test Transport Layer (TCP / UDP) / IP Multicast Functionality */
 #ifdef CONFIG_BUILD_KERNEL
 int main(int argc, FAR char *argv[])
@@ -837,7 +847,7 @@ int nettest_main(int argc, char *argv[])
 	/* pps - packet per second, default value 1 */
 	uint32_t pps = 1;
 
-	if (argc < 6) {
+	if (argc < 5) {
 		goto err_with_input;
 	}
 
@@ -857,12 +867,20 @@ int nettest_main(int argc, char *argv[])
 		proto = NT_BROADCAST;
 	} else if (!strncmp(argv[2], NETTEST_PROTO_MULTICAST, strlen(NETTEST_PROTO_MULTICAST) + 1)) {
 		proto = NT_MULTICAST;
+	} else if (!strncmp(argv[2], NETTEST_PROTO_STRESS, strlen(NETTEST_PROTO_STRESS) + 1)) {
+		proto = NT_STRESS;
 	} else {
 		goto err_with_input;
 	}
 
 	g_app_target_addr = argv[3];
 	g_app_target_port = atoi(argv[4]);
+
+	if (mode == NETTEST_CLIENT_MODE && proto == NT_STRESS) {
+		nettest_stress(g_app_target_addr, g_app_target_port);
+		return 0;
+	}
+
 	num_packets_to_process = atoi(argv[5]);
 	if (num_packets_to_process < 0 || num_packets_to_process > NETTEST_MAX_PACKETS) {
 		goto err_with_input;
@@ -912,3 +930,4 @@ err_with_input:
 	show_usage();
 	return -1;
 }
+

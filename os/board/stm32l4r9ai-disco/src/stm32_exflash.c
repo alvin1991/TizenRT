@@ -125,22 +125,19 @@ void stm32_exflash_initialize(void)
 
 #if defined(CONFIG_FLASH_PARTITION)
     int ret;
+    struct mtd_dev_s *mtd;
+    partition_info_t partinfo;
 
-    configure_partitions();
-
-    ret = mksmartfs("/dev/smart0p0", false);
-
+    mtd = (FAR struct mtd_dev_s *)mtd_initialize();
+    ret = configure_mtd_partitions(mtd, &g_flash_part_data, &partinfo);
     if (ret != OK) {
-      printf("USERFS ERROR: mksmartfs failed\n");
-    } else {
-      printf("SUCCESS: mksmartfs\n");
-      ret = mount("/dev/smart0p0",
-          "/mnt",
-          "smartfs", 0, NULL);
-      if (ret != OK) {
-        printf("USERFS ERROR: mounting failed\n");
-      }
+        lldbg("ERROR: configure_mtd_partitions failed");
+        return;
     }
+
+#ifdef CONFIG_AUTOMOUNT
+    automount_fs_partition(&partinfo);
+#endif
 #endif
 
 }

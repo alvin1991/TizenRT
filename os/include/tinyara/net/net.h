@@ -64,6 +64,7 @@
 #include <stdarg.h>
 #include <semaphore.h>
 #include <sys/types.h>
+#include <tinyara/net/net_lock.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -74,11 +75,12 @@
  * socket descriptors
  */
 
-#ifdef CONFIG_NFILE_DESCRIPTORS
 #define __SOCKFD_OFFSET CONFIG_NFILE_DESCRIPTORS
-#else
-#define __SOCKFD_OFFSET 0
-#endif
+
+/* Capabilities of a socket */
+
+#define SOCKCAP_NONBLOCKING (1 << 0) /* Bit 0: Socket supports non-blocking \
+									  *        operation. */
 
 /****************************************************************************
  * Public Types
@@ -103,13 +105,76 @@ typedef uint16_t sockopt_t;
 
 typedef uint16_t socktimeo_t;
 
+
+/* This type defines the type of the socket capabilities set */
+
+typedef uint8_t sockcaps_t;
+
+/* This callbacks are socket operations that may be performed on a socket of
+ * a given address family.
+ */
+
+struct file;	 /* Forward reference */
+struct socket;   /* Forward reference */
+struct pollfd;   /* Forward reference */
+struct sockaddr; /* Forward reference */
+
+struct sock_intf_s {
+	CODE int (*si_setup)(FAR struct socket *psock, int protocol);
+	CODE sockcaps_t (*si_sockcaps)(FAR struct socket *psock);
+	CODE void (*si_addref)(FAR struct socket *psock);
+	CODE int (*si_bind)(FAR struct socket *psock,
+						FAR const struct sockaddr *addr, socklen_t addrlen);
+	CODE int (*si_getsockname)(FAR struct socket *psock,
+							   FAR struct sockaddr *addr, FAR socklen_t *addrlen);
+	CODE int (*si_getpeername)(FAR struct socket *psock,
+							   FAR struct sockaddr *addr, FAR socklen_t *addrlen);
+	CODE int (*si_listen)(FAR struct socket *psock, int backlog);
+	CODE int (*si_connect)(FAR struct socket *psock,
+						   FAR const struct sockaddr *addr, socklen_t addrlen);
+	CODE int (*si_accept)(FAR struct socket *psock,
+						  FAR struct sockaddr *addr, FAR socklen_t *addrlen,
+						  FAR struct socket *newsock);
+	CODE int (*si_poll)(FAR struct socket *psock,
+						FAR struct pollfd *fds, bool setup);
+	CODE ssize_t (*si_send)(FAR struct socket *psock, FAR const void *buf,
+							size_t len, int flags);
+	CODE ssize_t (*si_sendto)(FAR struct socket *psock, FAR const void *buf,
+							  size_t len, int flags, FAR const struct sockaddr *to,
+							  socklen_t tolen);
+	CODE ssize_t (*si_recvfrom)(FAR struct socket *psock, FAR void *buf,
+								size_t len, int flags, FAR struct sockaddr *from,
+								FAR socklen_t *fromlen);
+	CODE int (*si_close)(FAR struct socket *psock);
+};
+
 /* This is the internal representation of a socket reference by a file
  * descriptor.
  */
-struct lwip_sock;
+typedef enum {
+	TR_SOCKET,
+	TR_UDS,
+	TR_LWNL,
+	TR_UNKNOWN,
+} sock_type;
+
 struct socket {
+	int16_t s_crefs;  /* Reference count on the socket */
+	uint8_t s_domain; /* IP domain: PF_INET, PF_INET6, or PF_PACKET */
+	uint8_t s_type;   /* Protocol type: Only SOCK_STREAM or
+					   * SOCK_DGRAM */
+	uint8_t s_flags;  /* See _SF_* definitions */
+
+	FAR void *s_conn; /* Connection inherits from struct socket_conn_s */
+
+	/* Socket interface */
+
+	FAR const struct sock_intf_s *s_sockif;
+
 	/** sockets currently are built on netconns, each socket has one netconn */
-	struct lwip_sock *conn;
+	void *conn;
+	sock_type type; // socket, uds, ...
+	void *sock;	// lwip_sock
 };
 
 /* This defines a list of sockets indexed by the socket descriptor */
@@ -125,13 +190,6 @@ struct socketlist {
 /* Callback from netdev_foreach() */
 struct netif;					/* Forward reference. Defined in lwip/netif.h */
 typedef int (*netdev_callback_t)(FAR struct netif *dev, void *arg);
-
-/* Semaphore based locking for non-interrupt based logic.
- *
- * net_lock_t -- Not used.  Only for compatibility
- */
-
-typedef uint8_t net_lock_t;		/* Not really used */
 
 /****************************************************************************
  * Public Data
@@ -281,6 +339,21 @@ void net_releaselist(FAR struct socketlist *list);
  ****************************************************************************/
 
 int net_close(int sockfd);
+
+/****************************************************************************
+ * Function: net_poll
+ *
+ * Description:
+ *   poll() waits for one of a set of file descriptors to become ready to
+ *   perform I/O.
+ *
+  * Returned Value:
+ *   0 on success; -1 on error with errno set appropriately.
+ *
+ * Assumptions:
+ *
+ ****************************************************************************/
+int net_poll(int sd, struct pollfd *fds, bool setup);
 
 /****************************************************************************
  * Function: net_dupsd

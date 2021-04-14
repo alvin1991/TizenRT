@@ -50,7 +50,7 @@ void pm_prune_history(sq_queue_t *q)
 			sc = (struct pm_statechange_s *)head->flink;
 			if (sc->timestamp < (cur_time - CONFIG_PM_METRICS_DURATION)) {
 				sq_rem(head, queue);
-				free(head);
+				kmm_free(head);
 				head = sq_peek(queue);
 			} else {
 				break;
@@ -63,7 +63,7 @@ void pm_prune_history(sq_queue_t *q)
 
 void pm_get_domainmetrics(int indx, struct pm_time_in_each_s *mtrics)
 {
-	pm_lock(indx);
+	pm_lock();
 	sq_entry_t *curnode = NULL;
 	time_t normal_time = 0;
 	time_t idle_time = 0;
@@ -123,7 +123,7 @@ void pm_get_domainmetrics(int indx, struct pm_time_in_each_s *mtrics)
 			printf("Invalid state\n");
 		}
 	}
-	pm_unlock(indx);
+	pm_unlock();
 
 	/* Write back metrics */
 	mtrics->normal = normal_time;

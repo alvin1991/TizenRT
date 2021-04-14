@@ -160,7 +160,7 @@ static int video_lock(FAR sem_t *sem);
 static int video_unlock(FAR sem_t *sem);
 static FAR video_type_inf_t *get_video_type_inf(FAR video_upperhalf_t *priv, uint8_t type);
 static enum video_state_e estimate_next_video_state(FAR video_upperhalf_t *priv, enum video_state_transition_cause cause);
-static void change_video_state(FAR video_upperhalf_t *priv, enum video_state_e next_state);
+static int change_video_state(FAR video_upperhalf_t *priv, enum video_state_e next_state);
 static bool is_taking_still_picture(FAR video_upperhalf_t *priv);
 static bool is_bufsize_sufficient(FAR video_upperhalf_t *priv, uint32_t bufsize);
 static void cleanup_resources(FAR video_upperhalf_t *priv);
@@ -305,8 +305,9 @@ static enum video_state_e estimate_next_video_state(FAR video_upperhalf_t *priv,
 	return current_state;
 }
 
-static void change_video_state(FAR video_upperhalf_t *priv, enum video_state_e next_state)
+static int change_video_state(FAR video_upperhalf_t *priv, enum video_state_e next_state)
 {
+	int ret;
 	enum video_state_e current_state = priv->video_inf.state;
 	enum video_state_e updated_next_state = next_state;
 	FAR vbuf_container_t *dma_container;
@@ -315,8 +316,11 @@ static void change_video_state(FAR video_upperhalf_t *priv, enum video_state_e n
 	if ((current_state != VIDEO_STATE_DMA) && (next_state == VIDEO_STATE_DMA)) {
 		dma_container = video_framebuff_get_dma_container(&priv->video_inf.bufinf);
 		if (dma_container) {
-			video_devops->set_buftype(priv->dev, V4L2_BUF_TYPE_VIDEO_CAPTURE);
-			video_devops->set_buf(priv->dev, dma_container->buf.m.userptr, dma_container->buf.length);
+			ret = video_devops->set_buf(priv->dev, V4L2_BUF_TYPE_VIDEO_CAPTURE, dma_container->buf.m.userptr, dma_container->buf.length);
+			if (ret != OK) {
+				videodbg("Unable to set buffer for state change.\n");
+				return ret;
+			}
 		} else {
 			updated_next_state = VIDEO_STATE_STREAMON;
 		}
@@ -327,6 +331,7 @@ static void change_video_state(FAR video_upperhalf_t *priv, enum video_state_e n
 	}
 
 	priv->video_inf.state = updated_next_state;
+	return OK;
 }
 
 static bool is_taking_still_picture(FAR video_upperhalf_t *priv)
@@ -478,6 +483,7 @@ static int video_reqbufs(FAR video_upperhalf_t *priv, FAR struct v4l2_requestbuf
 
 static int video_qbuf(FAR video_upperhalf_t *priv, FAR struct v4l2_buffer *buf)
 {
+	int ret = OK;
 	FAR video_type_inf_t *type_inf;
 	FAR vbuf_container_t *container;
 	enum video_state_e next_video_state;
@@ -518,13 +524,18 @@ static int video_qbuf(FAR video_upperhalf_t *priv, FAR struct v4l2_buffer *buf)
 	if (buf->type == V4L2_BUF_TYPE_VIDEO_CAPTURE) {
 		video_lock(&priv->still_inf.lock_state);
 		next_video_state = estimate_next_video_state(priv, CAUSE_VIDEO_START);
-		change_video_state(priv, next_video_state);
+		ret = change_video_state(priv, next_video_state);
 		video_unlock(&priv->still_inf.lock_state);
+		if (ret < 0) {
+			goto streamoff;
+		}
 	} else {
 		container = video_framebuff_get_dma_container(&type_inf->bufinf);
 		if (container) {
-			video_devops->set_buftype(priv->dev, buf->type);
-			video_devops->set_buf(priv->dev, container->buf.m.userptr, container->buf.length);
+			ret = video_devops->set_buf(priv->dev, buf->type, container->buf.m.userptr, container->buf.length);
+			if (ret < 0) {
+				goto streamoff;
+			}
 			type_inf->state = VIDEO_STATE_DMA;
 		}
 	}
@@ -532,11 +543,12 @@ static int video_qbuf(FAR video_upperhalf_t *priv, FAR struct v4l2_buffer *buf)
 streamoff:
 	video_unlock(&type_inf->lock_state);
 
-	return OK;
+	return ret;
 }
 
 static int video_dqbuf(FAR video_upperhalf_t *priv, FAR struct v4l2_buffer *buf)
 {
+	int ret = OK;
 	irqstate_t flags;
 	FAR video_type_inf_t *type_inf;
 	FAR vbuf_container_t *container;
@@ -566,8 +578,11 @@ static int video_dqbuf(FAR video_upperhalf_t *priv, FAR struct v4l2_buffer *buf)
 
 				flags = enter_critical_section();
 				next_video_state = estimate_next_video_state(priv, CAUSE_VIDEO_DQBUF);
-				change_video_state(priv, next_video_state);
+				ret = change_video_state(priv, next_video_state);
 				leave_critical_section(flags);
+				if (ret < 0) {
+					return ret;
+				}
 			}
 
 			sem_wait(dqbuf_wait_flg);
@@ -586,6 +601,12 @@ static int video_dqbuf(FAR video_upperhalf_t *priv, FAR struct v4l2_buffer *buf)
 		}
 
 		type_inf->wait_dma.done_container = NULL;
+	}
+
+	/* On DMA failure */
+	if (container->buf.flags == V4L2_BUF_FLAG_ERROR) {
+		video_framebuff_free_container(&type_inf->bufinf, container);
+		return -EIO;
 	}
 
 	memcpy(buf, &container->buf, sizeof(struct v4l2_buffer));
@@ -688,6 +709,11 @@ static int video_set_fmt(FAR video_upperhalf_t *priv, FAR struct v4l2_format *fm
 		return -EINVAL;
 	}
 
+	if (priv->video_inf.state == VIDEO_STATE_STREAMON || priv->still_inf.state == VIDEO_STATE_STREAMON) {
+		videodbg("Device currently streaming, unable to change parameters.\n");
+		return -EBUSY;
+	}
+
 	video_devops = priv->dev->ops;
 
 	if ((video_devops == NULL) || (video_devops->set_format == NULL)) {
@@ -728,6 +754,11 @@ static int video_set_parm(FAR video_upperhalf_t *priv, FAR struct v4l2_streampar
 		return -EINVAL;
 	}
 
+	if (priv->video_inf.state == VIDEO_STATE_STREAMON || priv->still_inf.state == VIDEO_STATE_STREAMON) {
+		videodbg("Device currently streaming, unable to change parameters.\n");
+		return -EBUSY;
+	}
+
 	video_devops = priv->dev->ops;
 
 	if ((video_devops == NULL) || (video_devops->set_frameinterval == NULL)) {
@@ -766,7 +797,7 @@ static int video_streamon(FAR video_upperhalf_t *priv, FAR enum v4l2_buf_type *t
 		ret = -EPERM;
 	} else {
 		next_video_state = estimate_next_video_state(priv, CAUSE_VIDEO_START);
-		change_video_state(priv, next_video_state);
+		ret = change_video_state(priv, next_video_state);
 	}
 
 	video_unlock(&type_inf->lock_state);
@@ -802,7 +833,7 @@ static int video_streamoff(FAR video_upperhalf_t *priv, FAR enum v4l2_buf_type *
 		ret = -EPERM;
 	} else {
 		next_video_state = estimate_next_video_state(priv, CAUSE_VIDEO_STOP);
-		change_video_state(priv, next_video_state);
+		ret = change_video_state(priv, next_video_state);
 	}
 
 	leave_critical_section(flags);
@@ -857,22 +888,26 @@ static int video_takepict_start(FAR video_upperhalf_t *priv, int32_t capture_num
 		flags = enter_critical_section();
 
 		next_video_state = estimate_next_video_state(priv, CAUSE_STILL_START);
-		change_video_state(priv, next_video_state);
+		ret = change_video_state(priv, next_video_state);
 
 		leave_critical_section(flags);
 
+		if (ret < 0) {
+			goto error;
+		}
 		dma_container = video_framebuff_get_dma_container(&priv->still_inf.bufinf);
 		if (dma_container) {
 			/* Start video stream DMA */
-
-			video_devops->set_buftype(priv->dev, V4L2_BUF_TYPE_STILL_CAPTURE);
-			video_devops->set_buf(priv->dev, dma_container->buf.m.userptr, dma_container->buf.length);
+			ret = video_devops->set_buf(priv->dev, V4L2_BUF_TYPE_STILL_CAPTURE, dma_container->buf.m.userptr, dma_container->buf.length);
+			if (ret < 0) {
+				goto error;
+			}
 			priv->still_inf.state = VIDEO_STATE_DMA;
 		} else {
 			priv->still_inf.state = VIDEO_STATE_STREAMON;
 		}
 	}
-
+error:
 	video_unlock(&priv->still_inf.lock_state);
 
 	return ret;
@@ -909,7 +944,7 @@ static int video_takepict_stop(FAR video_upperhalf_t *priv, bool halfpush)
 
 		video_lock(&priv->video_inf.lock_state);
 		next_video_state = estimate_next_video_state(priv, CAUSE_STILL_STOP);
-		change_video_state(priv, next_video_state);
+		ret = change_video_state(priv, next_video_state);
 		video_unlock(&priv->video_inf.lock_state);
 	}
 
@@ -1091,6 +1126,11 @@ static int video_set_ext_ctrls(FAR video_upperhalf_t *priv, FAR struct v4l2_ext_
 
 	if ((priv == NULL) || (ctrls == NULL)) {
 		return -EINVAL;
+	}
+
+	if (priv->video_inf.state == VIDEO_STATE_STREAMON || priv->still_inf.state == VIDEO_STATE_STREAMON) {
+		videodbg("Device currently streaming, unable to change parameters.\n");
+		return -EBUSY;
 	}
 
 	video_devops = priv->dev->ops;
@@ -1373,7 +1413,7 @@ int video_common_notify_dma_done(uint8_t err_code, uint32_t buf_type, uint32_t d
 			video_devops->cancel_dma(priv->dev);
 			type_inf->state = VIDEO_STATE_STREAMON;
 		} else {
-			video_devops->set_buf(priv->dev, container->buf.m.userptr, container->buf.length);
+			video_devops->set_buf(priv->dev, buf_type, container->buf.m.userptr, container->buf.length);
 		}
 	}
 

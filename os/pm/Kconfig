@@ -6,7 +6,6 @@
 menuconfig PM
 	bool "Power management (PM) driver interfaces"
 	default n
-	depends on SCHED_WORKQUEUE
 	---help---
 		Power management (PM) driver interfaces.  These interfaces are used
 		to manage power usage of a platform by monitoring driver activity
@@ -15,13 +14,17 @@ menuconfig PM
 
 if PM
 
-config DEBUG_PM
-	bool "Power Management Debug Features"
-	default n
-
 config PM_TEST
 	bool "Power Management Functionality Test"
 	default n
+
+config PM_ENTER_SLEEP
+	bool "Support to enter Sleep State from Normal State"
+	default y
+	depends on ARCH_SUPPORT_ENTER_SLEEP
+	---help---
+		Each architecture can provide mechanism to directly cause pm state
+		transition from PM_NORMAL to PM_SLEEP
 
 config PM_DEVNAME_LEN
 	int "Registered device name length"

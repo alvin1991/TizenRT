@@ -381,7 +381,7 @@ static int usbhost_setup(FAR struct uart_dev_s *uartdev);
 static void usbhost_shutdown(FAR struct uart_dev_s *uartdev);
 static int usbhost_attach(FAR struct uart_dev_s *uartdev);
 static void usbhost_detach(FAR struct uart_dev_s *uartdev);
-static int usbhost_ioctl(FAR struct file *filep, int cmd, unsigned long arg);
+static int usbhost_ioctl(FAR struct uart_dev_s *uartdev, int cmd, unsigned long arg);
 static void usbhost_rxint(FAR struct uart_dev_s *uartdev, bool enable);
 static bool usbhost_rxavailable(FAR struct uart_dev_s *uartdev);
 #ifdef CONFIG_SERIAL_IFLOWCONTROL
@@ -921,7 +921,7 @@ static void usbhost_txdata_work(FAR void *arg)
 		 * there is space available in the TX buffer.
 		 */
 
-		uart_datasent(uartdev);
+		uartdev->sent(uartdev);
 
 		/* Send the filled TX buffer to the CDC/ACM device */
 
@@ -1117,7 +1117,7 @@ static void usbhost_rxdata_work(FAR void *arg)
 
 			/* Inform any waiters there there is new incoming data available. */
 
-			uart_datareceived(uartdev);
+			uartdev->received(uartdev);
 			nxfrd = 0;
 		}
 	}
@@ -1153,7 +1153,7 @@ static void usbhost_rxdata_work(FAR void *arg)
 	 */
 
 	if (nxfrd) {
-		uart_datareceived(uartdev);
+		uartdev->received(uartdev);
 	}
 }
 
@@ -2200,18 +2200,13 @@ static void usbhost_detach(FAR struct uart_dev_s *uartdev)
  *
  ****************************************************************************/
 
-static int usbhost_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
+static int usbhost_ioctl(FAR struct uart_dev_s *uartdev, int cmd, unsigned long arg)
 {
-	struct inode *inode;
-	struct usbhost_cdcacm_s *priv;
+	struct usbhost_cdcacm_s *priv = (FAR struct usbhost_cdcacm_s *)uartdev->priv;
 	int ret;
 
+	DEBUGASSERT(priv);
 	uvdbg("Entry\n");
-	DEBUGASSERT(filep && filep->f_inode);
-	inode = filep->f_inode;
-
-	DEBUGASSERT(inode && inode->i_private);
-	priv = (FAR struct usbhost_cdcacm_s *)inode->i_private;
 
 	/* Check if the CDC/ACM device is still connected */
 

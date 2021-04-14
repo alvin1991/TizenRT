@@ -222,15 +222,11 @@ int sem_timedwait(FAR sem_t *sem, FAR const struct timespec *abstime)
 	 * enabled while we are blocked waiting for the semaphore.
 	 */
 
-	flags = irqsave();
-
 	/* Try to take the semaphore without waiting. */
 
 	ret = sem_trywait(sem);
 	if (ret == OK) {
 		/* We got it! */
-
-		irqrestore(flags);
 		wd_delete(rtcb->waitdog);
 		rtcb->waitdog = NULL;
 		leave_cancellation_point();
@@ -268,6 +264,9 @@ int sem_timedwait(FAR sem_t *sem, FAR const struct timespec *abstime)
 	/* Start the watchdog */
 
 	errcode = OK;
+
+	flags = irqsave();
+
 	wd_start(rtcb->waitdog, ticks, (wdentry_t)sem_timeout, 1, getpid());
 
 	/* Now perform the blocking wait */
@@ -310,7 +309,6 @@ int sem_timedwait(FAR sem_t *sem, FAR const struct timespec *abstime)
 	/* Error exits */
 
 errout_disabled:
-	irqrestore(flags);
 	wd_delete(rtcb->waitdog);
 	rtcb->waitdog = NULL;
 

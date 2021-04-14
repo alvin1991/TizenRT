@@ -77,6 +77,8 @@
 
 #include <tinyara/time.h>
 
+#include "lib_internal.h"
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -505,7 +507,7 @@ static int tzload(FAR const char *name, FAR struct state_s *const sp, const int 
 	size_t p_len;
 	size_t name_len;
 
-	lsp = malloc(sizeof * lsp);
+	lsp = lib_malloc(sizeof * lsp);
 	if (!lsp) {
 		return -1;
 	}
@@ -592,19 +594,18 @@ static int tzload(FAR const char *name, FAR struct state_s *const sp, const int 
 		timecnt = 0;
 		for (i = 0; i < sp->timecnt; ++i) {
 			int_fast64_t at = stored == 4 ? detzcode(p) : detzcode64(p);
-			sp->types[i] = ((TYPE_SIGNED(time_t) ? g_min_timet <= at : 0 <= at) && at <= g_max_timet);
+			sp->types[i] = at <= g_max_timet;
 			if (sp->types[i]) {
-				if (i && !timecnt && at != g_min_timet) {
-					/* Keep the earlier record, but tweak
-					 * it so that it starts with the
-					 * minimum time_t value.
-					 */
-
-					sp->types[i - 1] = 1;
-					sp->ats[timecnt++] = g_min_timet;
-				}
-
-				sp->ats[timecnt++] = at;
+				time_t attime = ((TYPE_SIGNED(time_t) ? at < g_min_timet : at < 0) ? g_min_timet : at);
+				if (timecnt && attime <= sp->ats[timecnt - 1]) {
+					if (attime < sp->ats[timecnt - 1]) {
+						set_errno(EINVAL);
+						return -1;
+					}
+				sp->types[i - 1] = 0;
+				timecnt--;
+			  }
+			  sp->ats[timecnt++] = attime;
 			}
 
 			p += stored;
@@ -790,11 +791,11 @@ static int tzload(FAR const char *name, FAR struct state_s *const sp, const int 
 	}
 
 	sp->defaulttype = i;
-	free(up);
+	lib_free(up);
 	return 0;
 
 oops:
-	free(up);
+	lib_free(up);
 	return -1;
 }
 
@@ -1385,7 +1386,7 @@ static void tzsetwall(void)
 	g_lcl_isset = -1;
 
 	if (lclptr == NULL) {
-		lclptr = malloc(sizeof * lclptr);
+		lclptr = lib_malloc(sizeof * lclptr);
 		if (lclptr == NULL) {
 			settzname();		/* all we can do */
 			return;
@@ -1422,7 +1423,7 @@ void tzset(void)
 	}
 
 	if (lclptr == NULL) {
-		lclptr = malloc(sizeof * lclptr);
+		lclptr = lib_malloc(sizeof * lclptr);
 		if (lclptr == NULL) {
 			settzname();		/* all we can do */
 			return;
@@ -1552,7 +1553,7 @@ static struct tm *localsub(FAR const time_t *const timep, const int_fast32_t off
 static struct tm *gmtsub(FAR const time_t *const timep, const int_fast32_t offset, struct tm *const tmp)
 {
 	if (!g_gmt_isset) {
-		gmtptr = malloc(sizeof * gmtptr);
+		gmtptr = lib_malloc(sizeof * gmtptr);
 		g_gmt_isset = gmtptr != NULL;
 		if (g_gmt_isset) {
 			gmtload(gmtptr);

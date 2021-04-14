@@ -80,6 +80,9 @@
 #include "group/group.h"
 #include "clock/clock.h"
 #include "pthread/pthread.h"
+#if defined(CONFIG_BINARY_MANAGER) && defined(CONFIG_APP_BINARY_SEPARATION)
+#include "binary_manager/binary_manager.h"
+#endif
 
 /****************************************************************************
  * Public Data
@@ -271,6 +274,13 @@ int pthread_create(FAR pthread_t *thread, FAR const pthread_attr_t *attr, pthrea
 		attr = &g_default_pthread_attr;
 	}
 
+#if defined(CONFIG_BINARY_MANAGER) && defined(CONFIG_APP_BINARY_SEPARATION)
+	if (BM_PRIORITY_MIN - 1 < attr->priority && attr->priority < BM_PRIORITY_MAX + 1) {
+		sdbg("Invalid priority %d, it should be lower than %d or higher than %d\n", attr->priority, BM_PRIORITY_MIN, BM_PRIORITY_MAX);
+		return EPERM;
+	}
+#endif
+
 	/* Allocate a TCB for the new task. */
 
 	ptcb = (FAR struct pthread_tcb_s *)kmm_zalloc(sizeof(struct pthread_tcb_s));
@@ -461,6 +471,10 @@ int pthread_create(FAR pthread_t *thread, FAR const pthread_attr_t *attr, pthrea
 			ret = EINVAL;
 		}
 
+#if defined(CONFIG_BINARY_MANAGER) && defined(CONFIG_APP_BINARY_SEPARATION)
+		/* Add tcb to binary thread list */
+		binary_manager_add_binlist(&ptcb->cmn);
+#endif
 		sched_unlock();
 		(void)sem_destroy(&pjoin->data_sem);
 	} else {

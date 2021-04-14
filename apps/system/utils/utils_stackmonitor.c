@@ -132,15 +132,22 @@ static void stkmon_print_title(void)
 static void stkmon_print_inactive_list(void)
 {
 	int inactive_idx;
-	struct stkmon_save_s terminated_infos[STKMON_MAX_LOGS];
+	int ret;
+	struct stkmon_save_s *terminated_infos;
 
-	/* Initialize the terminated_infos array. */
-	for (inactive_idx = 0; inactive_idx < (STKMON_MAX_LOGS); inactive_idx++) {	
-		terminated_infos[inactive_idx].timestamp = 0;
+	terminated_infos = (struct stkmon_save_s *)zalloc(sizeof(struct stkmon_save_s) * STKMON_MAX_LOGS);
+	if (terminated_infos == NULL) {
+		printf("Failed to allocate the information array.\n");
+		return;
 	}
 
 	/* Copy the terminated task/pthread information from kernel. */
-	prctl((int)PR_GET_STKLOG, (struct stkmon_save_s *)terminated_infos);
+	ret = prctl((int)PR_GET_STKLOG, terminated_infos);
+	if (ret != OK) {
+		free(terminated_infos);
+		printf("Failed to read terminated threads information.\n");
+		return;
+	}
 
 	for (inactive_idx = 0; inactive_idx < STKMON_MAX_LOGS; inactive_idx++) {
 		if (terminated_infos[inactive_idx].timestamp != 0) {
@@ -151,14 +158,19 @@ static void stkmon_print_inactive_list(void)
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 			printf(" | %10d", terminated_infos[inactive_idx].chk_peakheap);
 #endif
-			printf(" | %7lld", (uint64_t)((clock_t)terminated_infos[inactive_idx].timestamp));
+#ifdef CONFIG_SYSTEM_TIME64
+			printf(" | %7llu", (uint64_t)terminated_infos[inactive_idx].timestamp);
+#else
+			printf(" | %7lu", (uint32_t)terminated_infos[inactive_idx].timestamp);
+#endif
 #if (CONFIG_TASK_NAME_SIZE > 0)
 			printf(" | %s", terminated_infos[inactive_idx].chk_name);
 #endif
 			printf("\n");
-			terminated_infos[inactive_idx].timestamp = 0;
 		}
 	}
+
+	free(terminated_infos);
 }
 
 static void stkmon_print_active_values(char *buf)
@@ -179,7 +191,11 @@ static void stkmon_print_active_values(char *buf)
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 	printf(" | %10s", stat_info[PROC_STAT_PEAKHEAP]);
 #endif
-	printf(" | %7lld", (uint64_t)((clock_t)clock()));
+#ifdef CONFIG_SYSTEM_TIME64
+	printf(" | %7llu", (uint64_t)clock());
+#else
+	printf(" | %7lu", (uint32_t)clock());
+#endif
 #if (CONFIG_TASK_NAME_SIZE > 0)
 	printf(" | %s", stat_info[PROC_STAT_NAME]);
 #endif
@@ -280,7 +296,7 @@ static void stackmonitor_stop(void)
 
 	if (stkmon_started) {
 		/* Stop the stack monitor.  The next time the monitor wakes up,
-		 * it will see the the stop indication and will exist.
+		 * it will see the stop indication and will exist.
 		 */
 		printf(STKMON_PREFIX "Stopping, not stopped yet\n");
 		stkmon_started = FALSE;

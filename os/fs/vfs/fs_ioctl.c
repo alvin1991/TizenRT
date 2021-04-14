@@ -18,7 +18,8 @@
 /****************************************************************************
  * fs/vfs/fs_ioctl.c
  *
- *   Copyright (C) 2007-2010, 2012-2014 Gregory Nutt. All rights reserved.
+ *   Copyright (C) 2007-2010, 2012-2014, 2016-2017 Gregory Nutt. All rights
+ *     reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,16 +62,59 @@
 #include <errno.h>
 #include <assert.h>
 
-#if defined(CONFIG_NET) && CONFIG_NSOCKET_DESCRIPTORS > 0
 #include <net/if.h>
+
+#ifdef CONFIG_NET
 #include <tinyara/net/net.h>
 #endif
 
 #include "inode/inode.h"
 
 /****************************************************************************
- * Global Functions
+ * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: file_ioctl
+ *
+ * Description:
+ *   Perform device specific operations.
+ *
+ * Input Parameters:
+ *   file     File structure instance
+ *   req      The ioctl command
+ *   arg      The argument of the ioctl cmd
+ *
+ * Returned Value:
+ *   Returns a non-negative number on success;  A negated errno value is
+ *   returned on any failure (see comments ioctl() for a list of appropriate
+ *   errno values).
+ *
+ ****************************************************************************/
+
+int file_ioctl(FAR struct file *filep, int req, unsigned long arg)
+{
+	FAR struct inode *inode;
+
+	DEBUGASSERT(filep != NULL);
+
+	/* Is a driver opened? */
+
+	inode = filep->f_inode;
+	if (!inode) {
+		return -EBADF;
+	}
+
+	/* Does the driver support the ioctl method? */
+
+	if (inode->u.i_ops == NULL || inode->u.i_ops->ioctl == NULL) {
+		return -ENOTTY;
+	}
+
+	/* Yes on both accounts.  Let the driver perform the ioctl command */
+
+	return (int)inode->u.i_ops->ioctl(filep, req, arg);
+}
 
 /****************************************************************************
  * Name: ioctl/fs_ioctl
@@ -78,12 +122,12 @@
  * Description:
  *   Perform device specific operations.
  *
- * Parameters:
+ * Input Parameters:
  *   fd       File/socket descriptor of device
  *   req      The ioctl command
  *   arg      The argument of the ioctl cmd
  *
- * Return:
+ * Returned Value:
  *   >=0 on success (positive non-zero values are cmd-specific)
  *   -1 on failure with errno set properly:
  *
@@ -108,21 +152,23 @@ int ioctl(int fd, int req, unsigned long arg)
 #endif
 {
 	int errcode;
-#if CONFIG_NFILE_DESCRIPTORS > 0
 	FAR struct file *filep;
-	FAR struct inode *inode;
-	int ret = OK;
+	int ret;
 
 	/* Did we get a valid file descriptor? */
 
-	if ((unsigned int)fd >= CONFIG_NFILE_DESCRIPTORS)
-#endif
-	{
+	if ((unsigned int)fd >= CONFIG_NFILE_DESCRIPTORS) {
 		/* Perform the socket ioctl */
 
-#if defined(CONFIG_NET) && CONFIG_NSOCKET_DESCRIPTORS > 0
+#ifdef CONFIG_NET
 		if ((unsigned int)fd < (CONFIG_NFILE_DESCRIPTORS + CONFIG_NSOCKET_DESCRIPTORS)) {
-			return net_ioctl(fd, req, arg);
+			ret = net_ioctl(fd, req, arg);
+			if (ret < 0) {
+				errcode = -ret;
+				goto errout;
+			}
+
+			return ret;
 		} else
 #endif
 		{
@@ -130,7 +176,7 @@ int ioctl(int fd, int req, unsigned long arg)
 			goto errout;
 		}
 	}
-#if CONFIG_NFILE_DESCRIPTORS > 0
+
 	/* Get the file structure corresponding to the file descriptor. */
 
 	ret = fs_getfilep(fd, &filep);
@@ -139,24 +185,19 @@ int ioctl(int fd, int req, unsigned long arg)
 		goto errout;
 	}
 
-	/* Is a driver registered? Does it support the ioctl method? */
+	DEBUGASSERT(filep != NULL);
 
-	inode = filep->f_inode;
-	if (inode && inode->u.i_ops && inode->u.i_ops->ioctl) {
-		/* Yes, then let it perform the ioctl */
+	/* Perform the file ioctl.  If file_ioctl() fails, it will set the errno
+	 * value appropriately.
+	 */
 
-		ret = (int)inode->u.i_ops->ioctl(filep, req, arg);
-		if (ret < 0) {
-			errcode = -ret;
-			goto errout;
-		}
-	} else {
-		errcode = ENOTTY;
+	ret = file_ioctl(filep, req, arg);
+	if (ret < 0) {
+		errcode = -ret;
 		goto errout;
 	}
 
 	return ret;
-#endif
 
 errout:
 	set_errno(errcode);

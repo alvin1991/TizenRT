@@ -299,7 +299,7 @@ static void stm32l4serial_shutdown(FAR struct uart_dev_s *dev);
 static int  stm32l4serial_attach(FAR struct uart_dev_s *dev);
 static void stm32l4serial_detach(FAR struct uart_dev_s *dev);
 static int  up_interrupt(int irq, FAR void *context, FAR void *arg);
-static int  stm32l4serial_ioctl(FAR struct file *filep, int cmd,
+static int  stm32l4serial_ioctl(FAR struct uart_dev_s *dev, int cmd,
                                 unsigned long arg);
 #ifndef SERIAL_HAVE_ONLY_DMA
 static int  stm32l4serial_receive(FAR struct uart_dev_s *dev,
@@ -769,6 +769,7 @@ static struct
   bool serial_suspended;
 } g_serialpm =
   {
+    .pm_cb.name = "serial",
     .pm_cb.notify  = stm32l4serial_pmnotify,
     .pm_cb.prepare = stm32l4serial_pmprepare,
     .serial_suspended = false
@@ -1757,13 +1758,9 @@ static int up_interrupt(int irq, FAR void *context, FAR void *arg)
  *
  ****************************************************************************/
 
-static int stm32l4serial_ioctl(FAR struct file *filep, int cmd,
+static int stm32l4serial_ioctl(FAR struct uart_dev_s *dev, int cmd,
                                unsigned long arg)
 {
-#if defined(CONFIG_SERIAL_TERMIOS) || defined(CONFIG_SERIAL_TIOCSERGSTRUCT)
-  FAR struct inode      *inode = filep->f_inode;
-  FAR struct uart_dev_s *dev   = inode->i_private;
-#endif
 #if defined(CONFIG_SERIAL_TERMIOS)
   FAR struct stm32l4_serial_s   *priv  = (FAR struct stm32l4_serial_s *)dev->priv;
 #endif
@@ -2695,11 +2692,13 @@ static void stm32l4serial_dmarxcallback(DMA_HANDLE handle, uint8_t status,
 static void stm32l4serial_pmnotify(FAR struct pm_callback_s *cb, int domain,
                                    enum pm_state_e pmstate)
 {
+  struct stm32l4_serial_s *priv = g_uart_devs[CONSOLE_UART - 1];
   switch (pmstate)
     {
       case PM_NORMAL:
         {
           stm32l4serial_pm_setsuspend(false);
+          HAL_NVIC_SetPriority(priv->irq - STM32L4_IRQ_FIRST, 0xf, 0x0);
         }
         break;
 
@@ -2717,7 +2716,8 @@ static void stm32l4serial_pmnotify(FAR struct pm_callback_s *cb, int domain,
            *       Rx/Tx buffers are empty (checked in pmprepare).
            */
 
-          stm32l4serial_pm_setsuspend(true);
+          stm32l4serial_pm_setsuspend(false);
+          HAL_NVIC_SetPriority(priv->irq - STM32L4_IRQ_FIRST, 0x7, 0x0);
         }
         break;
 

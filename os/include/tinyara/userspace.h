@@ -63,62 +63,20 @@
 #include <signal.h>
 #include <pthread.h>
 
-#include <tinyara/arch.h>
-
 #ifdef CONFIG_BUILD_PROTECTED
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
-/* Configuration ************************************************************/
-/* If CONFIG_BUILD_PROTECTED, then CONFIG_TINYARA_USERSPACE must be defined to
- * provide the address where the user-space header can be found in memory.
- */
-
-#ifndef CONFIG_TINYARA_USERSPACE
-#error "CONFIG_TINYARA_USERSPACE is not defined"
-#endif
-
-/* Let's insist on 4-byte alignment.  This alignment may not be required
- * technically for all platforms.  However, neither is it an unreasonable
- * requirement for any platform.
- */
-
-#if (CONFIG_TINYARA_USERSPACE & 3) != 0
-#warning "CONFIG_TINYARA_USERSPACE is not aligned to a 4-byte boundary"
-#endif
-
-/* Helper Macros ************************************************************/
-/* This macro is used to access the struct userpace_s header that can be
- * found at the beginning of the user-space blob.
- */
-
-#define USERSPACE ((FAR struct userspace_s *)CONFIG_TINYARA_USERSPACE)
-
-/* In user space, these functions are directly callable.  In kernel space,
- * they can be called through the userspace structure.
- */
-
 /****************************************************************************
  * Public Type Definitions
  ****************************************************************************/
 /* Every user-space blob starts with a header that provides information about
  * the blob.  The form of that header is provided by struct userspace_s.  An
- * instance of this structure is expected to reside at CONFIG_TINYARA_USERSPACE.
+ * instance of this structure is expected to reside at __uflash_segment_start__.
  */
 
 struct userspace_s {
-	/* General memory map */
-
-	main_t us_entrypoint;
-	uintptr_t us_textstart;
-	uintptr_t us_textend;
-	uintptr_t us_datasource;
-	uintptr_t us_datastart;
-	uintptr_t us_dataend;
-	uintptr_t us_bssstart;
-	uintptr_t us_bssend;
-
 	/* Task/thread startup routines */
 
 	void (*task_startup)(main_t entrypt, int argc, FAR char *argv[])
@@ -131,12 +89,6 @@ struct userspace_s {
 
 #ifndef CONFIG_DISABLE_SIGNALS
 	void (*signal_handler)(_sa_sigaction_t sighand, int signo, FAR siginfo_t *info, FAR void *ucontext);
-#endif
-
-	/* Pre - Application Start */
-
-#ifdef CONFIG_SYSTEM_PREAPP_INIT
-	preapp_main_t preapp_start;
 #endif
 };
 

@@ -64,6 +64,11 @@
 #include <tinyara/arch.h>
 #include <tinyara/binfmt/elf.h>
 
+#ifdef CONFIG_SAVE_BIN_SECTION_ADDR
+#include <queue.h>
+#include <tinyara/binary_manager.h>
+#endif
+
 /****************************************************************************
  * Public Function Prototypes
  ****************************************************************************/
@@ -132,6 +137,19 @@ int elf_loadshdrs(FAR struct elf_loadinfo_s *loadinfo);
  ****************************************************************************/
 
 int elf_findsection(FAR struct elf_loadinfo_s *loadinfo, FAR const char *sectname);
+
+/****************************************************************************
+ * Name: elf_readstrtab
+ *
+ * Description:
+ *   Read the ELF string table into memory.
+ *
+ * Input Parameters:
+ *   loadinfo - Load state information
+ *
+ ****************************************************************************/
+
+int elf_readstrtab(FAR struct elf_loadinfo_s *loadinfo);
 
 /****************************************************************************
  * Name: elf_findsymtab
@@ -205,6 +223,24 @@ int elf_readsym(FAR struct elf_loadinfo_s *loadinfo, int index, FAR Elf32_Sym *s
  ****************************************************************************/
 
 int elf_symvalue(FAR struct elf_loadinfo_s *loadinfo, FAR Elf32_Sym *sym, FAR const struct symtab_s *exports, int nexports);
+
+/****************************************************************************
+ * Name: elf_symname
+ *
+ * Description:
+ *   Get the symbol name in loadinfo->iobuffer[].
+ *
+ * Returned Value:
+ *   0 (OK) is returned on success and a negated errno is returned on
+ *   failure.
+ *
+ *   EINVAL - There is something inconsistent in the symbol table (should only
+ *            happen if the file is corrupted).
+ *   ESRCH - Symbol has no name
+ *
+ ****************************************************************************/
+
+int elf_symname(FAR struct elf_loadinfo_s *loadinfo, FAR const Elf32_Sym *sym);
 
 /****************************************************************************
  * Name: elf_freebuffers
@@ -422,6 +458,28 @@ int elf_cache_init(int filfd, uint16_t offset, off_t filelen, uint8_t compressio
  *   Negative value on failure
  ****************************************************************************/
 int elf_cache_read(int filfd, uint16_t binary_header_size, FAR uint8_t *buffer, size_t readsize, off_t offset);
+#endif
+
+#ifdef CONFIG_SAVE_BIN_SECTION_ADDR
+struct bin_addr_info_s {
+	struct bin_addr_info_s *flink;
+	char bin_name[BIN_NAME_MAX];
+	uint32_t text_addr;
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+	uint32_t rodata_addr;
+	uint32_t data_addr;
+	uint32_t bss_addr;
+#endif
+};
+typedef struct bin_addr_info_s bin_addr_info_t;
+
+extern sq_queue_t g_bin_addr_list;
+
+void elf_save_bin_section_addr(struct binary_s *bin);
+void elf_delete_bin_section_addr(struct binary_s *bin);
+#ifdef CONFIG_BINFMT_SECTION_UNIFIED_MEMORY
+void *elf_find_start_section_addr(struct binary_s *binp);
+#endif
 #endif
 
 #endif							/* __BINFMT_LIBELF_LIBELF_H */

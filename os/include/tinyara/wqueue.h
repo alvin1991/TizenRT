@@ -81,7 +81,7 @@
  *   if memory reclamation is of high priority).  If CONFIG_SCHED_HPWORK
  *   is enabled, then the following options can also be used:
  * CONFIG_SCHED_HPWORKPRIORITY - The execution priority of the high-
- *   priority worker thread.  Default: 224
+ *   priority worker thread.  Default: 201
  * CONFIG_SCHED_HPWORKSTACKSIZE - The stack size allocated for the worker
  *   thread.  Default: 2048.
  * CONFIG_SIG_SIGWORK - The signal number that will be used to wake-up
@@ -154,7 +154,7 @@
 #ifdef CONFIG_SCHED_HPWORK
 
 #ifndef CONFIG_SCHED_HPWORKPRIORITY
-#define CONFIG_SCHED_HPWORKPRIORITY 224
+#define CONFIG_SCHED_HPWORKPRIORITY 201
 #endif
 
 #ifndef CONFIG_SCHED_HPWORKSTACKSIZE

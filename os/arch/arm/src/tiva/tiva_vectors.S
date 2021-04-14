@@ -80,7 +80,7 @@
    * stale MSP, there will most likely be a system failure.
    *
    * If the interrupt stack is selected, on the other hand, then the interrupt
-   * handler will always set the the MSP to the interrupt stack.  So when the high
+   * handler will always set the MSP to the interrupt stack.  So when the high
    * priority interrupt occurs, it will either use the MSP of the last privileged
    * thread to run or, in the case of the nested interrupt, the interrupt stack if
    * no privileged task has run.
@@ -90,7 +90,7 @@
 #    error Interrupt stack must be used with high priority interrupts in kernel mode
 #  endif
 
-  /* Use the the BASEPRI to control interrupts is required if nested, high
+  /* Use the BASEPRI to control interrupts is required if nested, high
    * priority interrupts are supported.
    */
 
@@ -124,7 +124,7 @@
 
 /* Check if common ARMv7 interrupt vectoring is used (see arch/arm/src/armv7-m/up_vectors.S) */
 
-#ifndef CONFIG_ARMV7M_CMNVECTOR
+#ifndef CONFIG_ARM_CMNVECTOR
 
 	.globl		__start
 
@@ -475,7 +475,7 @@ g_intstackalloc:
 g_intstackbase:
 	.size	g_intstackalloc, .-g_intstackalloc
 #endif
-#endif /* CONFIG_ARMV7M_CMNVECTOR */
+#endif /* CONFIG_ARM_CMNVECTOR */
 
 /************************************************************************************
  * .rodata

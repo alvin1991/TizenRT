@@ -76,6 +76,9 @@
 #include "sched/sched.h"
 #include "group/group.h"
 #include "task/task.h"
+#if defined(CONFIG_BINARY_MANAGER) && defined(CONFIG_APP_BINARY_SEPARATION)
+#include "binary_manager/binary_manager.h"
+#endif
 
 /****************************************************************************
  * Preprocessor Definitions
@@ -215,10 +218,11 @@ static int thread_create(FAR const char *name, uint8_t ttype, int priority, int 
 
 	pid = (int)tcb->cmn.pid;
 
-#ifdef CONFIG_BINARY_MANAGER
+#if defined(CONFIG_BINARY_MANAGER) && defined(CONFIG_APP_BINARY_SEPARATION)
 	FAR struct tcb_s *rtcb = this_task();
-	/* Set main task id in a binary for recovery */
-	tcb->cmn.group->tg_loadtask = rtcb->group->tg_loadtask;
+	tcb->cmn.group->tg_binidx = rtcb->group->tg_binidx;
+	/* Add tcb to binary thread list */
+	binary_manager_add_binlist(&tcb->cmn);
 #endif
 
 #ifdef CONFIG_HEAPINFO_USER_GROUP
@@ -284,6 +288,12 @@ errout:
 #ifndef CONFIG_BUILD_KERNEL
 int task_create(FAR const char *name, int priority, int stack_size, main_t entry, FAR char *const argv[])
 {
+#if defined(CONFIG_BINARY_MANAGER) && defined(CONFIG_APP_BINARY_SEPARATION)
+	if (BM_PRIORITY_MIN - 1 < priority && priority < BM_PRIORITY_MAX + 1) {
+		sdbg("Invalid priority %d, it should be lower than %d or higher than %d\n", priority, BM_PRIORITY_MIN, BM_PRIORITY_MAX);
+		return EPERM;
+	}
+#endif
 	return thread_create(name, TCB_FLAG_TTYPE_TASK, priority, stack_size, entry, argv);
 }
 #endif

@@ -36,13 +36,16 @@ USBRULE_PATH=${CURDIR_PATH}/../usbrule.sh
 USBRULE_BOARD="imxrt"
 USBRULE_IDVENDOR="0d28"
 USBRULE_IDPRODUCT="0204"
+USBRULE_IDVENDOR2="0403"
+USBRULE_IDPRODUCT2="6010"
 
 OS_PATH=${TOP_PATH}/os
 OUTBIN_PATH=${TOP_PATH}/build/output/bin
 TTYDEV="/dev/ttyACM0"
 TINYARA_BIN=${OUTBIN_PATH}/tinyara.bin
 CONFIG=${OS_PATH}/.config
-SUDO=sudo
+ZONEINFO=${OUTBIN_PATH}/zoneinfo.img
+FLASH_START_ADDR=0x60000000
 
 ##Utility function for sanity check##
 function imxrt1020_sanity_check()
@@ -73,8 +76,8 @@ function imxrt1020_sanity_check()
 function imxrt1020_bootstrap()
 {
 	source ${CURDIR_PATH}/bootstrap.sh
-	$SUDO ${BLHOST} -p $TTYDEV -- fill-memory 0x2000 0x04 0xc0000006
-	$SUDO ${BLHOST} -p $TTYDEV -- configure-memory 0x09 0x2000
+	${BLHOST} -p $TTYDEV -- fill-memory 0x2000 0x04 0xc0000006
+	${BLHOST} -p $TTYDEV -- configure-memory 0x09 0x2000
 }
 
 ##Utility function to erase a part of flash##
@@ -83,7 +86,7 @@ function flash_erase()
 {
 	echo -e "\nFLASH_ERASE: ADDR:$1 LENGTH:$2 KB"
 	size_in_bytes=$(($2 * 1024))
-	${SUDO} ${BLHOST} -p ${TTYDEV} -- flash-erase-region $1 $size_in_bytes
+	${BLHOST} -p ${TTYDEV} -- flash-erase-region $1 $size_in_bytes
 }
 
 ##Utility function to write a binary on a flash partition##
@@ -91,7 +94,7 @@ function flash_erase()
 function flash_write()
 {
 	echo -e "\nFLASH_WRITE ADDR:$1 \nFILEPATH:$2 "
-	${SUDO} ${BLHOST} -p ${TTYDEV} -- write-memory $1 $2
+	${BLHOST} -p ${TTYDEV} -- write-memory $1 $2
 	sleep 2
 }
 
@@ -100,9 +103,9 @@ function get_executable_name()
 {
 	case $1 in
 		kernel) echo "tinyara.bin";;
-		app) echo "tinyara_user.bin";;
 		micom) echo "micom";;
 		wifi) echo "wifi";;
+		zoneinfo) echo "zoneinfo.img";;
 		userfs) echo "imxrt1020-evk_smartfs.bin";;
 		*) echo "No Binary Match"
 		exit 1
@@ -113,11 +116,18 @@ function get_executable_name()
 function get_partition_index()
 {
 	case $1 in
-		kernel | Kernel | KERNEL) echo "0";;
-		app | App | APP) echo "1";;
-		micom | Micom | MICOM) echo "2";;
-		wifi | Wifi | WIFI) echo "4";;
-		userfs | Userfs | USERFS)
+		kernel) echo "0";;
+		micom) echo "1";;
+		wifi) echo "3";;
+		zoneinfo)
+		for i in "${!parts[@]}"
+		do
+		   if [[ "${parts[$i]}" = "zoneinfo" ]]; then
+			echo $i
+		   fi
+		done
+		;;
+		userfs)
 		for i in "${!parts[@]}"
 		do
 		   if [[ "${parts[$i]}" = "userfs" ]]; then
@@ -142,8 +152,7 @@ function imxrt1020_dwld_help()
 
 	For examples:
 		make download ALL
-	        make download kernel app
-	        make download app
+	        make download kernel
 		make download ERASE kernel
 EOF
 }
@@ -179,6 +188,17 @@ function get_partition_sizes()
 }
 
 # Start here
+
+cmd_args=$(echo $@ | tr '[:upper:]' '[:lower:]')
+
+# Treat adding the USB rule first
+for i in ${cmd_args[@]};do
+	if [[ "${i}" == "usbrule" ]];then
+		${USBRULE_PATH} ${USBRULE_BOARD} ${USBRULE_IDVENDOR} ${USBRULE_IDPRODUCT} ${USBRULE_IDVENDOR2} ${USBRULE_IDPRODUCT2} || exit 1
+		exit 0
+	fi
+done
+
 imxrt1020_sanity_check;
 
 parts=$(get_configured_partitions)
@@ -189,7 +209,7 @@ IFS=',' read -ra sizes <<< "$sizes"
 
 #Calculate Flash Offset
 num=${#sizes[@]}
-offsets[0]=`printf "0x%X" ${CONFIG_FLASH_START_ADDR}`
+offsets[0]=`printf "0x%X" ${FLASH_START_ADDR}`
 
 for (( i=1; i<=$num-1; i++ ))
 do
@@ -209,12 +229,11 @@ if test $# -eq 0; then
 fi
 
 uniq_parts=($(printf "%s\n" "${parts[@]}" | sort -u));
-cmd_args=$@
 
 #Validate arguments
 for i in ${cmd_args[@]};do
 
-	if [[ "${i}" == "ERASE" || "${i}" == "ALL" ]];then
+	if [[ "${i}" == "erase" || "${i}" == "all" ]];then
 		continue;
 	fi
 
@@ -238,8 +257,10 @@ case ${1,,} in
 #Download ALL option
 all)
 	for part in ${uniq_parts[@]}; do
-		if [[ "$part" == "userfs" ]];then
-			continue
+		if [[ "${CONFIG_SUPPORT_COMMON_BINARY}" != "y" ]];then
+			if [[ "$part" == "userfs" ]];then
+				continue
+			fi
 		fi
 		if [[ "$part" == "ftl" ]];then
 			continue
@@ -265,9 +286,6 @@ erase)
 		done
 		shift
 	done
-	;;
-usbrule)
-	${USBRULE_PATH} ${USBRULE_BOARD} ${USBRULE_IDVENDOR} ${USBRULE_IDPRODUCT} || exit 1
 	;;
 #Download <list of partitions>
 *)

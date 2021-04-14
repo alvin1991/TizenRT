@@ -24,8 +24,15 @@
 #include <stdlib.h>
 #include <debug.h>
 
-#define tash_alloc(a) malloc(a)
-#define tash_free(a)  free(a)
+#define tash_alloc(a)         malloc(a)
+#define tash_free(a)          free(a)
+#define TASH_LINEBUFLEN       (128)
+
+#ifdef CONFIG_TASH_MAX_STORE_COMMANDS
+#define TASH_MAX_STORE        (CONFIG_TASH_MAX_STORE_COMMANDS)
+#else
+#define TASH_MAX_STORE        (0)
+#endif  
 
 #ifdef CONFIG_CPP_HAVE_VARARGS
 #ifdef CONFIG_DEBUG_TASH
@@ -59,11 +66,20 @@
 
 bool tash_do_autocomplete(char *cmd, int *pos, bool double_tab);
 
+#if TASH_MAX_STORE > 0
+int check_exclam_cmd(char *buff);
+bool tash_search_cmd(char *cmd, int *pos, char status);
+void tash_store_line(char *line);
+void tash_store_cmd(char *cmd);
+#endif
+
 extern void tash_register_basic_cmds(void);
 extern int tash_execute_cmdline(char *buff);
 extern int tash_execute_cmd(char **args, int argc);
 extern int tash_init(void);
 extern void tash_stop(void);
+char *tash_read_input_line(int fd);
+void tash_check_security(int fd);
 #ifdef CONFIG_TASH_SCRIPT
 extern int tash_script(int argc, char **args);
 #endif

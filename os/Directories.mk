@@ -152,6 +152,9 @@ CONTEXTDIRS += wqueue
 #ifeq ($(CONFIG_ENABLE_IOTIVITY),y)
 #CONTEXTDIRS += $(EXTDIR)$(DELIM)iotivity
 #endif
+ifeq ($(CONFIG_STDK_IOT_CORE),y)
+CONTEXTDIRS += $(EXTDIR)$(DELIM)stdk
+endif
 USERDIRS =
 OTHERDIRS = $(LIBRARIES_DIR)
 
@@ -189,6 +192,10 @@ CONTEXTDIRS += syscall
 USERDIRS += syscall
 else
 OTHERDIRS += syscall
+endif
+
+ifeq ($(CONFIG_LIBC_DOWNLOAD_ZONEINFO),y)
+CONTEXTDIRS += $(LIB_DIR)$(DELIM)libc
 endif
 
 USERDIRS += $(TOPDIR)$(DELIM)..$(DELIM)loadable_apps

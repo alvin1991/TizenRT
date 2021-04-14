@@ -134,7 +134,7 @@ void uart_xmitchars(FAR uart_dev_t *dev)
 	 */
 
 	if (nbytes) {
-		uart_datasent(dev);
+		dev->sent(dev);
 	}
 }
 
@@ -246,6 +246,6 @@ void uart_recvchars(FAR uart_dev_t *dev)
 	 */
 
 	if (nbytes) {
-		uart_datareceived(dev);
+		dev->received(dev);
 	}
 }

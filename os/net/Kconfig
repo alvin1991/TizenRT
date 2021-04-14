@@ -33,13 +33,6 @@ if NET_LWIP
 source net/lwip/configs/Kconfig
 endif #NET_LWIP
 
-config NET_TASK_BIND
-	bool "Bind to the task"
-	depends on NSOCKET_DESCRIPTORS > 0
-	default n
-	---help---
-		Enable bind sockets to task
-
 menu "Driver buffer configuration"
 
 config NET_ETH_MTU
@@ -107,13 +100,6 @@ config NET_LWIP_DHCP
 	bool "(Optional) Enabling LwIP DHCP client/server"
 	depends on NET_LWIP
 endchoice #DHCP
-
-config LWIP_DHCP_TCPIP_THREAD
-	bool "Running over LwIP Thread"
-	depends on NET_LWIP_DHCP
-	default n
-	---help---
-		Enable netifapi of DHCP to run it over LwIP TCPIP main thread
 
 config LWIP_DHCP_HOSTNAME
 	bool "Enable Hostname Option"
@@ -194,6 +180,8 @@ config NET_LOOPBACK_INTERFACE
 	default n
 	---help---
 		Support loop interface (127.0.0.1).
+
+source "net/local/Kconfig"
 
 endif # NET
 

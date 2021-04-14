@@ -35,7 +35,6 @@ extern void test_keymgr(void);
 extern void test_securestorage(void);
 
 
-
 #ifdef CONFIG_BUILD_KERNEL
 int main(int argc, FAR char *argv[])
 #else

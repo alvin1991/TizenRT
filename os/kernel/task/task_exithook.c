@@ -69,6 +69,10 @@
 #include "group/group.h"
 #include "signal/signal.h"
 #include "task/task.h"
+#include "debug/debug.h"
+#if defined(CONFIG_BINARY_MANAGER) && defined(CONFIG_APP_BINARY_SEPARATION)
+#include "binary_manager/binary_manager.h"
+#endif
 
 #ifdef CONFIG_TASK_MANAGER
 #include <task_manager/task_manager.h>
@@ -553,6 +557,11 @@ void task_exithook(FAR struct tcb_s *tcb, int status, bool nonblocking)
 		return;
 	}
 
+#ifdef CONFIG_DEBUG
+	/* Save the terminated task/pthread's information for stack monitor and heapinfo. */
+	dbg_save_termination_info(tcb);
+#endif
+
 #ifdef CONFIG_CANCELLATION_POINTS
 	/* Mark the task as non-cancelable to avoid additional calls to exit()
 	 * due to any cancellation point logic that might get kicked off by
@@ -616,6 +625,12 @@ void task_exithook(FAR struct tcb_s *tcb, int status, bool nonblocking)
 	if (!nonblocking) {
 		task_flushstreams(tcb);
 	}
+
+#if defined(CONFIG_BINARY_MANAGER) && defined(CONFIG_APP_BINARY_SEPARATION)
+	/* Remove a tcb from binary list */
+	binary_manager_remove_binlist(tcb);
+#endif
+
 #ifdef HAVE_TASK_GROUP
 	/* Leave the task group.  Perhaps discarding any un-reaped child
 	 * status (no zombies here!)

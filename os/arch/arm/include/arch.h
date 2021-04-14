@@ -140,6 +140,33 @@
  * Inline functions
  ****************************************************************************/
 
+static inline uint32_t up_getsp(void)
+{
+	uint32_t sp;
+	__asm__
+	(
+		"\tmov %0, sp\n\t"
+		: "=r"(sp)
+	);
+	return sp;
+}
+
+#ifdef CONFIG_ARCH_CORTEXM33
+static inline uint32_t get_PSPLIM(void)
+{
+	uint32_t result;
+	__asm volatile ("MRS %0, psplim"  : "=r" (result));
+	return result;
+}
+static inline void set_PSPLIM(uint32_t PSP_limit)
+{
+	__asm volatile ("MSR psplim, %0" : : "r" (PSP_limit));
+}
+#else
+#define get_PSPLIM(void)					(0)
+#define set_PSPLIM(PSP_limit)				(0)
+#endif
+
 /****************************************************************************
  * Public Types
  ****************************************************************************/

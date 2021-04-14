@@ -502,7 +502,7 @@ int imxrt_lpuart_configure(uint32_t base, FAR const struct uart_config_s *config
 }
 #endif							/* HAVE_LPUART_DEVICE */
 
-#if defined(HAVE_LPUART_DEVICE) && defined(CONFIG_DEBUG)
+#if defined(HAVE_LPUART_DEVICE)
 /****************************************************************************
  * Name: up_lowputc
  *
@@ -527,21 +527,6 @@ void up_lowputc(char ch)
 void imxrt_lowputc(char ch)
 {
 	while ((getreg32(IMXRT_CONSOLE_BASE + IMXRT_LPUART_STAT_OFFSET) & LPUART_STAT_TDRE(1U)) == 0) {
-	}
-
-	/* If the character to output is a newline, then pre-pend a carriage return */
-
-	if (ch == '\n') {
-		/* Send the carriage return by writing it into the UART_TXD register. */
-
-		putreg32((uint32_t)'\r', IMXRT_CONSOLE_BASE + IMXRT_LPUART_DATA_OFFSET);
-
-		/* Wait for the transmit register to be emptied. When the TXFE bit is non-zero,
-		 * the TX Buffer FIFO is empty.
-		 */
-
-		while ((getreg32(IMXRT_CONSOLE_BASE + IMXRT_LPUART_STAT_OFFSET) & LPUART_STAT_TDRE(1U)) == 0) {
-		}
 	}
 
 	/* Send the character by writing it into the UART_TXD register. */

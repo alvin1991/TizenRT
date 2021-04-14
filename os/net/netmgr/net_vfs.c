@@ -26,6 +26,7 @@
 #include <net/if.h>
 #include <tinyara/net/net.h>
 #include "netstack.h"
+#include "local/uds_net.h"
 
 /****************************************************************************
  * Name: net_checksd
@@ -40,8 +41,7 @@
  ****************************************************************************/
 int net_checksd(int sd, int oflags)
 {
-	struct netstack *st = get_netstack();
-	return st->ops->checksd(sd, oflags);
+	NETSTACK_CALL_BYFD(sd, checksd, (sd, oflags));
 }
 
 /****************************************************************************
@@ -54,8 +54,8 @@ int net_checksd(int sd, int oflags)
 
 int net_clone(FAR struct socket *sock1, FAR struct socket *sock2)
 {
-	struct netstack *st = get_netstack();
-	return st->ops->clone(sock1, sock2);
+	// ToDo
+	return -1;
 }
 
 /****************************************************************************
@@ -68,10 +68,9 @@ int net_clone(FAR struct socket *sock1, FAR struct socket *sock2)
  *   then this function IS dup().
  *
  ****************************************************************************/
-int net_dupsd(int sockfd)
+int net_dupsd(int sd)
 {
-	struct netstack *st = get_netstack();
-	return st->ops->dup(sockfd);
+	NETSTACK_CALL_BYFD(sd, dup, (sd));
 }
 
 /****************************************************************************
@@ -85,10 +84,9 @@ int net_dupsd(int sockfd)
  *
  ****************************************************************************/
 
-int net_dupsd2(int sockfd1, int sockfd2)
+int net_dupsd2(int sd1, int sd2)
 {
-	struct netstack *st = get_netstack();
-	return st->ops->dup2(sockfd1, sockfd2);
+	NETSTACK_CALL_BYFD(sd1, dup2, (sd1, sd2));
 }
 
 /****************************************************************************
@@ -98,7 +96,7 @@ int net_dupsd2(int sockfd1, int sockfd2)
  *   Performs the close operation on socket descriptors
  *
  * Parameters:
- *   sockfd   Socket descriptor of socket
+ *   sd   Socket descriptor of socket
  *
  * Returned Value:
  *   0 on success; -1 on error with errno set appropriately.
@@ -107,10 +105,9 @@ int net_dupsd2(int sockfd1, int sockfd2)
  *
  ****************************************************************************/
 
-int net_close(int sockfd)
+int net_close(int sd)
 {
-	struct netstack *st = get_netstack();
-	return st->ops->close(sockfd);
+	NETSTACK_CALL_BYFD(sd, close, (sd));
 }
 
 /****************************************************************************
@@ -126,10 +123,9 @@ int net_close(int sockfd)
  * Assumptions:
  *
  ****************************************************************************/
-int net_poll(int fd, struct pollfd *fds, bool setup)
+int net_poll(int sd, struct pollfd *fds, bool setup)
 {
-	struct netstack *st = get_netstack();
-	return st->ops->poll(fd, fds, setup);
+	NETSTACK_CALL_BYFD(sd, poll, (sd, fds, setup));
 }
 
 /****************************************************************************
@@ -139,7 +135,7 @@ int net_poll(int fd, struct pollfd *fds, bool setup)
  *   Perform network device specific operations.
  *
  * Parameters:
- *   sockfd   Socket descriptor of device
+ *   sd   Socket descriptor of device
  *   cmd      The ioctl command
  *   arg      The argument of the ioctl cmd
  *
@@ -148,7 +144,7 @@ int net_poll(int fd, struct pollfd *fds, bool setup)
  *   On a failure, -1 is returned with errno set appropriately
  *
  *   EBADF
- *     'sockfd' is not a valid descriptor.
+ *     'sd' is not a valid descriptor.
  *   EFAULT
  *     'arg' references an inaccessible memory area.
  *   ENOTTY
@@ -156,10 +152,10 @@ int net_poll(int fd, struct pollfd *fds, bool setup)
  *   EINVAL
  *     'arg' is not valid.
  *   ENOTTY
- *     'sockfd' is not associated with a network device.
+ *     'sd' is not associated with a network device.
  *   ENOTTY
  *      The specified request does not apply to the kind of object that the
- *      descriptor 'sockfd' references.
+ *      descriptor 'sd' references.
  *
  ****************************************************************************/
 extern int netdev_imsfioctl(FAR struct socket *sock, int cmd, FAR struct ip_msfilter *imsf);
@@ -167,7 +163,7 @@ extern int netdev_ifrioctl(FAR struct socket *sock, int cmd, FAR struct ifreq *r
 extern int netdev_nmioctl(FAR struct socket *sock, int cmd, void  *arg);
 
 
-int net_ioctl(int sockfd, int cmd, unsigned long arg)
+int net_ioctl(int sd, int cmd, unsigned long arg)
 {
 	FAR struct lwip_sock *sock = NULL;
 	int ret = -ENOTTY;
@@ -181,17 +177,17 @@ int net_ioctl(int sockfd, int cmd, unsigned long arg)
 		goto errout;
 	}
 
-	/* ToDo:  Verify that the sockfd corresponds to valid, allocated socket */
-	sock = get_socket(sockfd);
-	if (NULL == sock) {
+	/* ToDo:  Verify that the sd corresponds to valid, allocated socket */
+	sock = get_socket(sd, getpid());
+	if (sock == NULL) {
 		ret = -EBADF;
 		goto errout;
 	}
 
 	/* Execute the command */
-	struct netstack *st = get_netstack();
+	struct netstack *st = get_netstack_byfd(sd);
 	if (st) {
-		ret = st->ops->ioctl(sockfd, cmd, arg);
+		NETSTACK_CALL_RET(st, ioctl, (sd, cmd, arg), ret);
 	}
 	if (ret == -ENOTTY) {
 		ret = netdev_ifrioctl(NULL, cmd, (FAR struct ifreq *)((uintptr_t)arg));
@@ -212,7 +208,6 @@ int net_ioctl(int sockfd, int cmd, unsigned long arg)
 		ret = netdev_rtioctl(NULL, cmd, (FAR struct rtentry *)((uintptr_t)arg));
 	}
 #endif							/* CONFIG_NET_ROUTE */
-
 	/* Check for success or failure */
 	if (ret >= 0) {
 		return ret;
@@ -232,7 +227,7 @@ errout:
  *   Performs fcntl operations on socket
  *
  * Input Parameters:
- *   sockfd - Socket descriptor of the socket to operate on
+ *   sd - Socket descriptor of the socket to operate on
  *   cmd    - The fcntl command.
  *   ap     - Command-specific arguments
  *
@@ -242,16 +237,16 @@ errout:
  *
  ****************************************************************************/
 
-int net_vfcntl(int sockfd, int cmd, va_list ap)
+int net_vfcntl(int sd, int cmd, va_list ap)
 {
 
-	FAR struct socket *sock = (struct socket *)get_socket(sockfd);
+	FAR struct socket *sock = (struct socket *)get_socket(sd, getpid());
 	int err = 0;
 	int ret = 0;
 
-	nvdbg("sockfd=%d cmd=%d\n", sockfd, cmd);
+	nvdbg("sd=%d cmd=%d\n", sd, cmd);
 
-	/* Verify that the sockfd corresponds to valid, allocated socket */
+	/* Verify that the sd corresponds to valid, allocated socket */
 
 	if (!sock) {
 		err = EBADF;
@@ -260,7 +255,8 @@ int net_vfcntl(int sockfd, int cmd, va_list ap)
 
 	/* Interrupts must be disabled in order to perform operations on socket structures */
 
-	// flags = net_lock();
+	struct netstack *st = get_netstack_byfd(sd);
+	// net_lock();
 	switch (cmd) {
 	case F_DUPFD:
 		/* Return a new file descriptor which shall be the lowest numbered
@@ -274,8 +270,7 @@ int net_vfcntl(int sockfd, int cmd, va_list ap)
 		 */
 
 	{
-		struct netstack *st = get_netstack();
-		ret = st->ops->dup(sockfd);
+		NETSTACK_CALL_RET(st, dup, (sd), ret);
 	}
 	break;
 
@@ -308,8 +303,7 @@ int net_vfcntl(int sockfd, int cmd, va_list ap)
 		 */
 
 	{
-		struct netstack *st = get_netstack();
-		ret = st->ops->fcntl(sockfd, cmd, ap);
+		NETSTACK_CALL_RET(st, fcntl, (sd, cmd, ap), ret);
 	}
 	break;
 
@@ -323,8 +317,7 @@ int net_vfcntl(int sockfd, int cmd, va_list ap)
 		 */
 
 	{
-		struct netstack *st = get_netstack();
-		ret = st->ops->fcntl(sockfd, cmd, ap);
+		NETSTACK_CALL_RET(st, fcntl, (sd, cmd, ap), ret);
 	}
 
 	break;
@@ -379,7 +372,7 @@ int net_vfcntl(int sockfd, int cmd, va_list ap)
 		break;
 	}
 
-	// net_unlock(flags);
+	// net_unlock();
 
 errout:
 	if (err != 0) {
@@ -406,8 +399,10 @@ errout:
 
 void net_initlist(FAR struct socketlist *list)
 {
-	/* ToDo: Initialize the list access mutex */
-	return;
+	struct netstack *stk = get_netstack(TR_SOCKET);
+	if (stk) {
+		stk->ops->initlist(list);
+	}
 }
 
 /****************************************************************************
@@ -426,9 +421,12 @@ void net_initlist(FAR struct socketlist *list)
 
 void net_releaselist(FAR struct socketlist *list)
 {
-	/*	Todo */
-	return;
+	DEBUGASSERT(list);
+	struct netstack *stk = get_netstack(TR_SOCKET);
+	if (stk) {
+		stk->ops->releaselist(list);
+	}
+
+	/* Destroy the semaphore */
+	sem_destroy(&list->sl_sem);
 }
-
-// void net_duplist();
-

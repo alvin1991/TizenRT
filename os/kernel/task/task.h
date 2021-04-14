@@ -119,6 +119,9 @@ void task_onexit(FAR struct tcb_s *tcb, int status);
 #else
 #define task_onexit(tcb, status)
 #endif
+#ifdef CONFIG_BINARY_MANAGER
+int task_terminate_unloaded(FAR struct tcb_s *tcb);
+#endif
 /* Misc. */
 
 bool sched_addreadytorun(FAR struct tcb_s *rtrtcb);

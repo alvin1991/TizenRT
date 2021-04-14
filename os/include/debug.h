@@ -375,6 +375,12 @@ int get_errno(void);
 #define nwerr_llvdbg(...)
 #endif
 
+#ifdef CONFIG_DEBUG_FS
+#define fsdbg(format, ...)	 dbg_noarg(format, ##__VA_ARGS__)
+#else
+#define fsdbg(format, ...)
+#endif
+
 #ifdef CONFIG_DEBUG_FS_ERROR
 #define fdbg(format, ...)    dbg(format, ##__VA_ARGS__)
 #define flldbg(format, ...)  lldbg(format, ##__VA_ARGS__)
@@ -393,11 +399,9 @@ int get_errno(void);
 
 #ifdef CONFIG_DEBUG_FS_INFO
 #define fvdbg(format, ...)   vdbg(format, ##__VA_ARGS__)
-#define fsdbg(format, ...)   dbg_noarg(format, ##__VA_ARGS__)
 #define fllvdbg(format, ...) llvdbg(format, ##__VA_ARGS__)
 #else
 #define fvdbg(...)
-#define fsdbg(format, ...)
 #define fllvdbg(...)
 #endif
 
@@ -1151,6 +1155,12 @@ int get_errno(void);
 #define nwerr_llvdbg (void)
 #endif
 
+#ifdef CONFIG_DEBUG_FS
+#define fsdbg       dbg
+#else
+#define fsdbg       (void)
+#endif
+
 #ifdef CONFIG_DEBUG_FS_ERROR
 #define fdbg        dbg
 #define flldbg      lldbg
@@ -1169,11 +1179,9 @@ int get_errno(void);
 
 #ifdef CONFIG_DEBUG_FS_INFO
 #define fvdbg       vdbg
-#define fsdbg       dbg_noarg
 #define fllvdbg     llvdbg
 #else
 #define fvdbg       (void)
-#define fsdbg       (void)
 #define fllvdbg     (void)
 #endif
 
@@ -1329,8 +1337,8 @@ int get_errno(void);
 #define medvdbg     vdbg
 #define medllvdbg   llvdbg
 #else
+#define medvdbg     (void)
 #define medllvdbg   (void)
-#define medllvdbg   (...)
 #endif
 
 #ifdef CONFIG_DEBUG_MESSAGE_IPC
@@ -1695,6 +1703,18 @@ int get_errno(void);
 #define vdbgdumpbuffer(m, b, n)
 #endif
 
+#ifdef CONFIG_DEBUG_ERROR
+#  define errdumpbuffer(m, b, n) lib_dumpbuffer(m, b, n)
+#  ifdef CONFIG_DEBUG_VERBOSE
+#    define infodumpbuffer(m, b, n) lib_dumpbuffer(m, b, n)
+#  else
+#   define infodumpbuffer(m, b, n)
+#  endif
+#else
+#  define errdumpbuffer(m, b, n)
+#  define infodumpbuffer(m, b, n)
+# endif
+
 /* Subsystem specific debug */
 
 #ifdef CONFIG_DEBUG_MM
@@ -1767,6 +1787,14 @@ int get_errno(void);
 #else
 #define gdbgdumpbuffer(m, b, n)
 #define gvdbgdumpbuffer(m, b, n)
+#endif
+
+#ifdef CONFIG_DEBUG_BINFMT
+#  define berrdumpbuffer(m, b, n)  errdumpbuffer(m, b, n)
+#  define binfodumpbuffer(m, b, n) infodumpbuffer(m, b, n)
+#else
+#  define berrdumpbuffer(m, b, n)
+#  define binfodumpbuffer(m, b, n)
 #endif
 
 #ifdef CONFIG_DEBUG_LIB

@@ -300,7 +300,7 @@ tools/mkversion$(HOSTEXEEXT):
 
 $(TOPDIR)/.version: force_build
 	echo "create .version file"; \
-	tools/version.sh -v 3.0 .version; \
+	tools/version.sh -v 3.1 .version; \
 	chmod 755 .version
 
 include/tinyara/version.h: $(TOPDIR)/.version tools/mkversion$(HOSTEXEEXT)
@@ -389,7 +389,6 @@ context: check_context include/tinyara/config.h include/tinyara/version.h includ
 	$(Q) for dir in $(CONTEXTDIRS) ; do \
 		$(MAKE) -C $$dir TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" context; \
 	done
-	$(Q) ./tools/mkldscript.sh
 
 # clean_context
 #
@@ -441,23 +440,34 @@ include LibTargets.mk
 # is an archive.  Exactly what is performed during pass1 or what it generates
 # is unknown to this makefile unless CONFIG_PASS1_OBJECT is defined.
 
-PASS1_BUILDIR = board/common/userspace
+ifeq ($(CONFIG_SUPPORT_COMMON_BINARY),y)
+LIBGCC = "${shell "$(CC)" $(ARCHCPUFLAGS) -print-libgcc-file-name}"
+COMMONLIBS = -luarch -luc -lumm -lproxies
+endif
 
 pass1deps: pass1dep $(USERLIBS)
 
 pass1: pass1deps
 ifeq ($(CONFIG_BUILD_2PASS),y)
-	$(Q) if [ ! -d "$(PASS1_BUILDIR)" ]; then \
-		echo "ERROR: PASS1_BUILDIR does not exist"; \
-		exit 1; \
-	fi
-	$(Q) if [ ! -f "$(PASS1_BUILDIR)/Makefile" ]; then \
-		echo "ERROR: No Makefile in PASS1_BUILDIR"; \
-		exit 1; \
-	fi
-	$(call DELFILE, $(PASS1_BUILDIR)/up_userspace.o)
-	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" LINKLIBS="$(LINKLIBS)" USERLIBS="$(USERLIBS)" "$(CONFIG_PASS1_TARGET)"
 	$(Q) $(MAKE) -C $(LOADABLE_APPDIR) TOPDIR="$(TOPDIR)" LOADABLEDIR="${LOADABLE_APPDIR}" LIBRARIES_DIR="$(LIBRARIES_DIR)" USERLIBS="$(USERLIBS)" all KERNEL=n
+ifeq ($(CONFIG_SUPPORT_COMMON_BINARY),y)
+	$(Q) $(LD) -r -o $(OUTBIN_DIR)/$(CONFIG_COMMON_BINARY_NAME) -T $(TOPDIR)/userspace/userspace_apps.ld -L $(LIBRARIES_DIR) --start-group $(COMMONLIBS) $(LIBGCC) --end-group $$(cat $(OUTBIN_DIR)/lib_symbols.txt)
+	$(Q) if [ "`nm -u $(OUTBIN_DIR)/$(CONFIG_COMMON_BINARY_NAME) | wc -l`" != "0" ]; then \
+		echo "Undefined Symbols in Common binary"; \
+		nm -u -l $(OUTBIN_DIR)/$(CONFIG_COMMON_BINARY_NAME); \
+		rm $(OUTBIN_DIR)/$(CONFIG_COMMON_BINARY_NAME); \
+		exit 1; \
+	fi
+	$(Q) $(STRIP) -g -o $(OUTBIN_DIR)/$(CONFIG_COMMON_BINARY_NAME) $(OUTBIN_DIR)/$(CONFIG_COMMON_BINARY_NAME)
+	$(Q) $(OBJCOPY) --remove-section .comment $(OUTBIN_DIR)/$(CONFIG_COMMON_BINARY_NAME)
+	$(Q) if [ ! -d "$(TOPDIR)/../tools/fs/contents-smartfs" ]; then \
+		mkdir -p "$(TOPDIR)/../tools/fs/contents-smartfs"; \
+		mkdir -p "$(TOPDIR)/../tools/fs/contents-smartfs/$(CONFIG_ARCH_BOARD)"; \
+		mkdir -p "$(TOPDIR)/../tools/fs/contents-smartfs/$(CONFIG_ARCH_BOARD)/base-files"; \
+	fi
+	$(Q) cp $(OUTBIN_DIR)/$(CONFIG_COMMON_BINARY_NAME) $(TOPDIR)/../tools/fs/contents-smartfs/$(CONFIG_ARCH_BOARD)/base-files/
+	$(Q) $(MAKE) smartfs
+endif
 endif
 
 pass2deps: pass2dep $(TINYARALIBS)
@@ -483,6 +493,7 @@ endif
 
 	$(Q) echo "Start the Board Specific Work for Binary"
 	$(Q) $(call MAKE_BOARD_SPECIFIC_BIN, $(BIN_EXE), $(BIN_EXT))
+	$(Q) $(call MAKE_SAMSUNG_HEADER, $(BIN_EXE), $(BIN_EXT))
 
 ifeq ($(CONFIG_UBOOT_UIMAGE),y)
 	@echo "MKIMAGE: uImage"
@@ -604,9 +615,6 @@ subdir_clean:
 		fi \
 	done
 	$(Q) $(MAKE) -C tools -f Makefile.host TOPDIR="$(TOPDIR)" clean
-ifeq ($(CONFIG_BUILD_2PASS),y)
-	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" LOADABLEDIR="${LOADABLE_APPDIR}" clean
-endif
 
 clean: subdir_clean
 	$(call DELFILE, $(OUTBIN_DIR)/*)
@@ -630,9 +638,6 @@ ifneq ($(MEMSTATS),)
 endif
 
 distclean: clean subdir_distclean clean_context
-ifeq ($(CONFIG_BUILD_2PASS),y)
-	$(Q) $(MAKE) -C $(PASS1_BUILDIR) TOPDIR="$(TOPDIR)" EXTDIR="$(EXTDIR)" distclean
-endif
 	$(call DELFILE, Make.defs)
 	$(call DELFILE, setenv.sh)
 	$(call DELFILE, setenv.bat)

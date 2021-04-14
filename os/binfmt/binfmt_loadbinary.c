@@ -33,15 +33,22 @@
 #include <tinyara/sched.h>
 #include <tinyara/binfmt/binfmt.h>
 #include <tinyara/binary_manager.h>
+#include <tinyara/mpu.h>
+
+#ifdef CONFIG_SAVE_BIN_SECTION_ADDR
+#include "libelf/libelf.h"
+#endif
 
 #include "binfmt.h"
 #include "binary_manager/binary_manager.h"
 
 #ifdef CONFIG_BINFMT_ENABLE
 
-#ifdef CONFIG_ARMV7M_MPU
-extern uint32_t g_app_mpu_region;
-extern void mpu_user_extsram_context(uint32_t region, uintptr_t base, size_t size, uint32_t *regs);
+#include <tinyara/mm/mm.h>
+
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+struct binary_s *g_lib_binp;
+uint32_t *g_umm_app_id;
 #endif
 
 /****************************************************************************
@@ -64,7 +71,7 @@ extern void mpu_user_extsram_context(uint32_t region, uintptr_t base, size_t siz
  *               program.
  *
  *   load_attr - This structure contains the information that the binary
- *               to be loaded.
+ *               to be loaded. load_attr will be NULL while loading a library.
  *
  * Returned Value:
  *   This is an end-user function, so it follows the normal convention:
@@ -75,149 +82,162 @@ extern void mpu_user_extsram_context(uint32_t region, uintptr_t base, size_t siz
 #ifdef CONFIG_BINARY_MANAGER
 int load_binary(int binary_idx, FAR const char *filename, load_attr_t *load_attr)
 {
-	FAR struct binary_s *bin;
+	FAR struct binary_s *bin = NULL;
 	int pid;
 	int errcode;
 	int ret;
+#if (defined(CONFIG_SUPPORT_COMMON_BINARY) && (defined(CONFIG_ARMV7M_MPU) || defined(CONFIG_ARMV8M_MPU)))
+	uint32_t com_bin_mpu_regs[MPU_REG_NUMBER * MPU_NUM_REGIONS];	/* We need 3 register values to configure each MPU region */
+#endif
 
 	/* Sanity check */
-	if (load_attr->bin_size <= 0) {
+	if (load_attr && load_attr->bin_size <= 0) {
 		berr("ERROR: Invalid file length!\n");
-		errcode = EINVAL;
+		errcode = -EINVAL;
 		goto errout;
 	}
 
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	/* Allocate the RAM partition to load the app into */
-	uint32_t *start_addr;
-	uint32_t size = load_attr->ram_size;
-	struct tcb_s *tcb;
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
 
-	if (mm_allocate_ram_partition(&start_addr, &size, load_attr->bin_name) < 0) {
-		berr("ERROR: Failed to allocate RAM partition\n");
-		errcode = ENOMEM;
-		goto errout;
-	}
-#endif
-
-	/* Allocate the load information */
-
-	bin = (FAR struct binary_s *)kmm_zalloc(sizeof(struct binary_s));
-	if (!bin) {
-		berr("ERROR: Failed to allocate binary_s\n");
-		errcode = ENOMEM;
-		goto err_free_partition;
-	}
-
-	/* Initialize the binary structure */
-
-	bin->filename = filename;
-	bin->exports = NULL;
-	bin->nexports = 0;
-	bin->filelen = load_attr->bin_size;
-	bin->offset = load_attr->offset;
-	bin->stacksize = load_attr->stack_size;
-	bin->priority = load_attr->priority;
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	bin->uheap = (struct mm_heap_s *)start_addr;
-	bin->uheap_size = size;
-#endif
-	bin->compression_type = load_attr->compression_type;
-
-	/* Load the module into memory */
-
-	ret = load_module(bin);
-	if (ret < 0) {
-		errcode = -ret;
-		berr("ERROR: Failed to load program '%s': %d\n", filename, errcode);
-		goto errout_with_bin;
-	}
-
-	/* Disable pre-emption so that the executed module does
-	 * not return until we get a chance to connect the on_exit
-	 * handler.
-	 */
-
-	sched_lock();
-
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	/* The first 4 bytes of the text section of the application must contain a
-	pointer to the application's mm_heap object. Here we will store the mm_heap
-	pointer to the start of the text section */
-	*(uint32_t *)(bin->alloc[0]) = (uint32_t)start_addr;
-	tcb = (struct tcb_s *)sched_self();
-	tcb->ram_start = (uint32_t)start_addr;
-
-	/* Initialize the MPU registers in tcb with suitable protection values */
-#ifdef CONFIG_ARMV7M_MPU
-	mpu_user_extsram_context(g_app_mpu_region, (uintptr_t)start_addr, size, tcb->mpu_regs);
-#endif
-
-#endif
-
-	/* Then start the module */
-	pid = exec_module(bin);
-	if (pid < 0) {
-		errcode = -pid;
-		berr("ERROR: Failed to execute program '%s': %d\n", filename, errcode);
-		goto errout_with_lock;
-	}
-
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	tcb->ram_start = 0;
-	tcb = sched_gettcb(pid);
-	if (tcb == NULL) {
-		errcode = ESRCH;
-		goto errout_with_lock;
-	}
-	tcb->ram_start = (uint32_t)start_addr;
-	tcb->ram_size = size;
-	/* Set task name as binary name */
-	strncpy(tcb->name, load_attr->bin_name, CONFIG_TASK_NAME_SIZE);
-	tcb->name[CONFIG_TASK_NAME_SIZE] = '\0';
-#endif
-
-#if defined(CONFIG_BINARY_MANAGER) && !defined(CONFIG_DISABLE_SIGNALS)
-	/* Clean the signal mask of loaded task because it inherits signal mask from parent task, binary manager. */
-	tcb->sigprocmask = NULL_SIGNAL_SET;
-#endif
-
-#ifdef CONFIG_BINFMT_LOADABLE
-	/* Set up to unload the module (and free the binary_s structure)
-	 * when the task exists.
-	 */
-
-	ret = group_exitinfo(pid, bin);
-	if (ret < 0) {
-		berr("ERROR: Failed to schedule unload '%s': %d\n", filename, ret);
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+	if (load_attr) {
+		bin = load_attr->binp;
+	} else {
+		bin = g_lib_binp;
 	}
 #else
-	/* Free the binary_s structure here */
+	bin = load_attr->binp;
+#endif
+	/* If we find a non-null value for bin, it means that
+	 * we are in a reload scenario.
+	 */
+	if (bin) {
+		if (!bin->data_backup) {
+			errcode = -EINVAL;
+			berr("ERROR: Failed to find copy of data section from previous load\n");
+			goto errout_with_bin;
+		}
 
-	binfmt_freeargv(bin);
-	kmm_free(bin);
-
-	/* TODO: How does the module get unloaded in this case? */
+		memcpy((void *)bin->datastart, (const void *)bin->data_backup, bin->datasize);
+		memset((void *)bin->bssstart, 0, bin->bsssize);
+		bin->reload = false;
+	} else {
 #endif
 
-	binfo("%s loaded @ 0x%08x and running with pid = %d\n", bin->filename, bin->alloc[0], pid);
+		/* Allocate the load information */
 
-	/* Update binary id and state for fault handling before unlocking scheduling */
+		bin = (FAR struct binary_s *)kmm_zalloc(sizeof(struct binary_s));
+		if (!bin) {
+			berr("ERROR: Failed to allocate binary_s\n");
+			errcode = -ENOMEM;
+			goto errout_with_bin;
+		}
 
-	BIN_ID(binary_idx) = pid;
-	BIN_STATE(binary_idx) = BINARY_LOADING_DONE;
+		/* Initialize the binary structure */
 
-	sched_unlock();
+		bin->filename = filename;
+		if (load_attr) {
+			bin->exports = NULL;
+			bin->nexports = 0;
+			bin->filelen = load_attr->bin_size;
+			bin->offset = load_attr->offset;
+			bin->stacksize = load_attr->stack_size;
+			bin->priority = load_attr->priority;
+			bin->compression_type = load_attr->compression_type;
+			bin->binary_idx = binary_idx;
+			bin->bin_ver = load_attr->bin_ver;
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+			strncpy(bin->bin_name, load_attr->bin_name, BIN_NAME_MAX);
+#else
+			bin->bin_name = load_attr->bin_name;
+#endif
+			bin->ramsize = load_attr->ram_size;
+		} else {
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+			bin->islibrary = true;
+			g_lib_binp = bin;
+#endif
+		}
+
+		/* Load the module into memory */
+		ret = load_module(bin);
+		if (ret < 0) {
+			errcode = ret;
+			berr("ERROR: Failed to load program '%s': %d\n", filename, errcode);
+			goto errout_with_bin;
+		}
+
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+		if (!bin->data_backup) {
+			errcode = -EINVAL;
+			berr("ERROR: data section backup address not initialized\n");
+			goto errout_with_bin;
+		}
+
+		memcpy((void *)bin->data_backup, (const void *)bin->datastart, bin->datasize);
+	}
+#endif
+
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+	if (bin->islibrary) {
+		g_umm_app_id = (uint32_t *)(bin->datastart + 4);
+#ifdef CONFIG_SAVE_BIN_SECTION_ADDR
+		elf_save_bin_section_addr(bin);
+#endif
+
+#if (defined(CONFIG_ARMV7M_MPU) || defined(CONFIG_ARMV8M_MPU))
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+		uint8_t nregion = mpu_get_nregion_info(MPU_REGION_COMMON_BIN);
+		/* Get MPU register values for MPU regions */
+		mpu_get_register_config_value(&com_bin_mpu_regs[0], nregion - 3, (uintptr_t)bin->alloc[ALLOC_TEXT], bin->textsize, true,  true);
+		mpu_get_register_config_value(&com_bin_mpu_regs[3], nregion - 2, (uintptr_t)bin->alloc[ALLOC_RO],   bin->rosize,   true,  false);
+		mpu_get_register_config_value(&com_bin_mpu_regs[6], nregion - 1, (uintptr_t)bin->alloc[ALLOC_DATA], bin->ramsize,  false, false);
+#else
+		mpu_get_register_config_value(&com_bin_mpu_regs[0], nregion - 1, (uintptr_t)bin->ramstart,          bin->ramsize,  false, true);
+#endif
+		/* Set MPU register values to real MPU h/w */
+		for (int i = 0; i < MPU_REG_NUMBER * MPU_NUM_REGIONS; i += MPU_REG_NUMBER) {
+			up_mpu_set_register(&com_bin_mpu_regs[i]);
+		}
+#endif
+
+		return OK;
+	}
+	/* If we support common binary, then we need to place a pointer to the app's heap object
+	 * into the heap table which is present at the start of the common library data section
+	 */
+	uint32_t *heap_table = (uint32_t *)(g_lib_binp->datastart + 8);
+	heap_table[binary_idx] = bin->heapstart;
+#endif
+
+	/* Start the module */
+	pid = exec_module(bin);
+	if (pid < 0) {
+		errcode = pid;
+		berr("ERROR: Failed to execute program '%s': %d\n", filename, errcode);
+		goto errout_with_unload;
+	}
+#ifdef CONFIG_SAVE_BIN_SECTION_ADDR
+	elf_save_bin_section_addr(bin);
+#endif
+
+	/* Print Binary section address & size details */
+
+	binfo("[%s] text    start addr =  0x%x  size = %u\n", bin->bin_name, (uint32_t)bin->alloc[ALLOC_TEXT], bin->textsize);
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+	binfo("[%s] rodata  start addr =  0x%x  size = %u\n", bin->bin_name, (uint32_t)bin->alloc[ALLOC_RO], bin->rosize);
+	binfo("[%s] data    start addr =  0x%x  size = %u\n", bin->bin_name, (uint32_t)bin->datastart, bin->datasize);
+	binfo("[%s] bss     start addr =  0x%x  size = %u\n", bin->bin_name, (uint32_t)bin->bssstart, bin->bsssize);
+#endif
+
 	return pid;
 
-errout_with_lock:
-	sched_unlock();
+errout_with_unload:
 	(void)unload_module(bin);
 errout_with_bin:
 	kmm_free(bin);
-err_free_partition:
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	mm_free_ram_partition((uint32_t)start_addr);
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+	g_lib_binp = NULL;
 #endif
 errout:
 	set_errno(errcode);

@@ -56,10 +56,12 @@
 #define _SRC_NXFUSE_H
 
 #define FIOUTIME        _FIOC(0x0007)  /* IN:  None
-                                                                                * OUT: OK if successful, -ENOSYS if not
-                                                                                */
+                                        * OUT: OK if successful, -ENOSYS if not
+                                        */
 #define FIOCHMOD        _FIOC(0x0008)  /* IN:  New mode flags (int)
-                                                                                * OUT: OK if successful, -ENOSYS if not
+                                        * OUT: OK if successful, -ENOSYS if not
+                                        */
+
 /* The logical sector number of the root directory. */
 
 #define SMARTFS_ROOT_DIR_SECTOR   3
@@ -107,6 +109,6 @@ struct inode *vmount(const char *filename, const char *mount_point, const char *
  *   specified NuttX filesystem type.
  *
  ****************************************************************************/
-int mkfs(const char *filename, const char *fs_type, int erasesize, int sectsize, int pagesize, char *generic, int confirm);
+int mkfs(const char *filename, const char *fs_type, uint32_t erasesize, uint16_t sectsize, int pagesize, char *generic, int confirm);
 
 #endif							/* _SRC_NXFUSE_H */

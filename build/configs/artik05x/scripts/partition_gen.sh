@@ -116,7 +116,7 @@ do
 	elif [ "$pname" == "ota" ]; then
 		pname_text="OTA download"
 		ro=0
-	elif [ "$pname" == "user" ]; then
+	elif [ "$pname" == "userfs" ]; then
 		pname_text="USER R/W"
 		ro=0
 	elif [ "$pname" == "rom" ]; then
@@ -134,6 +134,9 @@ do
 		ro=1
 	elif [ "$pname" == "sssrw" ]; then
 		pname_text="SSS R/W Key"
+		ro=1
+	elif [ "$pname" == "zoneinfo" ]; then
+		pname_text="ZONEINFO"
 		ro=1
 	fi
 

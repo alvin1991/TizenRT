@@ -71,16 +71,24 @@
 #include  <tinyara/mm/shm.h>
 #include  <tinyara/kmalloc.h>
 #include  <tinyara/init.h>
+#include  <tinyara/pm/pm.h>
+#include  <tinyara/mm/heap_regioninfo.h>
+#ifdef CONFIG_DEBUG_SYSTEM
+#include  <tinyara/debug/sysdbg.h>
+#endif
+#ifdef CONFIG_DRIVERS_OS_API_TEST
+#include  <tinyara/os_api_test_drv.h>
+#endif
 
 #include  "sched/sched.h"
 #include  "signal/signal.h"
 #include  "wdog/wdog.h"
 #include  "semaphore/semaphore.h"
 #ifndef CONFIG_DISABLE_MQUEUE
-#include "mqueue/mqueue.h"
+#include  "mqueue/mqueue.h"
 #endif
 #ifndef CONFIG_DISABLE_PTHREAD
-#include "pthread/pthread.h"
+#include  "pthread/pthread.h"
 #endif
 #include  "clock/clock.h"
 #include  "timer/timer.h"
@@ -89,15 +97,9 @@
 #include  "group/group.h"
 #endif
 #include  "init/init.h"
-#ifdef CONFIG_DEBUG_SYSTEM
-#include <tinyara/debug/sysdbg.h>
-#endif
-#ifdef CONFIG_KERNEL_TEST_DRV
-#include <tinyara/testcase_drv.h>
-#endif
+#include  "debug/memdbg.h"
 
 extern const uint32_t g_idle_topstack;
-#include <tinyara/mm/heap_regioninfo.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -167,6 +169,10 @@ volatile dq_queue_t g_waitingformqnotfull;
 volatile dq_queue_t g_waitingforfill;
 #endif
 
+/* This is the list of all tasks that are blocking waiting to be unblocked another threads */
+
+volatile dq_queue_t g_waitingforfin;
+
 /* This the list of all tasks that have been initialized, but not yet
  * activated. NOTE:  This is the only list that is not prioritized.
  */
@@ -181,10 +187,7 @@ volatile dq_queue_t g_inactivetasks;
 
 volatile sq_queue_t g_delayed_kufree;
 
-#if (defined(CONFIG_BUILD_PROTECTED) || defined(CONFIG_BUILD_KERNEL)) && \
-	 defined(CONFIG_MM_KERNEL_HEAP)
 volatile sq_queue_t g_delayed_kfree;
-#endif
 
 /* This gives number of alive tasks at any point of time in the system.
  * If the system is already running CONFIG_MAX_TASKS, Creating new
@@ -221,7 +224,8 @@ const struct tasklist_s g_tasklisttable[NUM_TASK_STATES] = {
 	{&g_readytorun,           true },	/* TSTATE_TASK_READYTORUN */
 	{&g_readytorun,           true },	/* TSTATE_TASK_RUNNING */
 	{&g_inactivetasks,        false},	/* TSTATE_TASK_INACTIVE */
-	{&g_waitingforsemaphore,  true }	/* TSTATE_WAIT_SEM */
+	{&g_waitingforsemaphore,  true },	/* TSTATE_WAIT_SEM */
+	{&g_waitingforfin,    true }		/* TSTATE_WAIT_FIN */
 #ifndef CONFIG_DISABLE_SIGNALS
 	,
 	{&g_waitingforsignal,     false}	/* TSTATE_WAIT_SIG */
@@ -361,9 +365,12 @@ void os_start(void)
 	g_idletcb.argv = g_idleargv;
 
 	/* Fill the stack information to Idle task's tcb */
+
 	g_idletcb.cmn.adj_stack_size = CONFIG_IDLETHREAD_STACKSIZE;
 	g_idletcb.cmn.stack_alloc_ptr = (void *)(g_idle_topstack - CONFIG_IDLETHREAD_STACKSIZE);
 	g_idletcb.cmn.adj_stack_ptr = (void *)(g_idle_topstack - 4);
+
+	DEBUGASSERT(up_getsp() >= (uint32_t)g_idletcb.cmn.stack_alloc_ptr && up_getsp() <= (uint32_t)g_idletcb.cmn.adj_stack_ptr);
 
 	/* Then add the idle task's TCB to the head of the ready to run list */
 
@@ -381,20 +388,12 @@ void os_start(void)
 	sem_initialize();
 
 
-#if defined(MM_KERNEL_USRHEAP_INIT) || defined(CONFIG_MM_KERNEL_HEAP) || defined(CONFIG_MM_PGALLOC)
+#if defined(CONFIG_MM_KERNEL_HEAP) || defined(CONFIG_MM_PGALLOC)
 	/* Initialize the memory manager */
 
 	{
 		FAR void *heap_start;
 		size_t heap_size;
-
-#ifdef MM_KERNEL_USRHEAP_INIT
-		/* Get the user-mode heap from the platform specific code and configure
-		 * the user-mode memory allocator.
-		 */
-		up_allocate_heap(&heap_start, &heap_size);
-		kumm_initialize(heap_start, heap_size);
-#endif
 
 #ifdef CONFIG_MM_KERNEL_HEAP
 		/* Get the kernel-mode heap from the platform specific code and configure
@@ -402,7 +401,10 @@ void os_start(void)
 		 */
 
 		up_allocate_kheap(&heap_start, &heap_size);
-		kmm_initialize(heap_start, heap_size);
+		if (kmm_initialize(heap_start, heap_size) != OK) {
+			sdbg("ERROR : heap initialization is failed. heap_start : %x, heap_size : %u\n", heap_start, heap_size);
+			PANIC();
+		}
 #endif
 
 #ifdef CONFIG_MM_PGALLOC
@@ -417,14 +419,10 @@ void os_start(void)
 	}
 #endif
 
-	up_addregion();
+	up_add_kregion();
 
 #ifdef CONFIG_APP_BINARY_SEPARATION
-	/* If app binary separation is enabled, then each application will have its own RAM
-	 * area called as the ram partition. The app's text, data, stack and heap will all be
-	 * allocated from this partition. The following call initializes the ram partition manager
-	 */
-	mm_initialize_ram_partitions();
+	mm_initialize_app_heap_q();
 #endif
 
 #if defined(CONFIG_SCHED_HAVE_PARENT) && defined(CONFIG_SCHED_CHILD_STATUS)
@@ -537,8 +535,8 @@ void os_start(void)
 
 	fs_auto_mount();
 
-#ifdef CONFIG_KERNEL_TEST_DRV
-	kernel_test_drv_register();
+#ifdef CONFIG_DRIVERS_OS_API_TEST
+	os_api_test_drv_register();
 #endif
 
 #if defined(CONFIG_DEBUG_SYSTEM)
@@ -591,8 +589,20 @@ void os_start(void)
 	g_idletcb.cmn.group->tg_flags = GROUP_FLAG_NOCLDWAIT;
 #endif
 
+#ifdef CONFIG_ARMV8M_TRUSTZONE
+	up_init_secure_context();
+#endif
 	/* Bring Up the System ****************************************************/
 	/* Create initial tasks and bring-up the system */
+
+#ifdef CONFIG_PM
+	/* We cannot enter low power state until boot complete */
+	pm_stay(PM_IDLE_DOMAIN, PM_NORMAL);
+#endif
+
+#ifdef CONFIG_DEBUG_MM_WARN
+	display_memory_information();
+#endif
 
 	DEBUGVERIFY(os_bringup());
 

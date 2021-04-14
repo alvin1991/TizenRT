@@ -16,19 +16,27 @@
 #
 ###########################################################################
 include $(TOPDIR)/.config
-include $(TOPDIR)/Make.defs
 
 LINKLIBS = $(patsubst $(LIBRARIES_DIR)/%, %, $(USERLIBS))
 LDLIBS = $(patsubst %.a, %, $(patsubst lib%,-l%,$(LINKLIBS)))
 
 TINYARALIB = "$(TOPDIR)/../build/output/libraries"
-USERSPACE = $(TOPDIR)/board/common/userspace/up_userspace
+USERSPACE = $(TOPDIR)/userspace/up_userspace
 
 LDELFFLAGS += -Bstatic
 LDLIBPATH += -L $(TINYARALIB)
 
-LIBGCC = "${shell "$(CC)" $(ARCHCFLAGS) -print-libgcc-file-name}"
+ifeq ($(CONFIG_SUPPORT_COMMON_BINARY),y)
+# If we support common binary, then we exclude some of the libraries from here
+LDLIBS := $(patsubst %-luarch,%,$(LDLIBS))
+LDLIBS := $(patsubst %-luc,%,$(LDLIBS))
+LDLIBS := $(patsubst %-lumm,%,$(LDLIBS))
+LDLIBS := $(patsubst %-lproxies,%,$(LDLIBS))
+else
+
+LIBGCC = "${shell "$(CC)" $(ARCHCPUFLAGS) -print-libgcc-file-name}"
 LDLIBS += $(LIBGCC)
+endif
 
 OBJCOPY = $(CROSSDEV)objcopy
 
@@ -40,6 +48,7 @@ COMPRESSION_TYPE = 0
 BLOCK_SIZE = 0
 endif
 
+BOARDNAME=$(CONFIG_ARCH_BOARD)
 APPDEFINE = ${shell $(TOPDIR)/tools/define.sh "$(CC)" __APP_BUILD__}
 
 SRCS += $(USERSPACE).c
@@ -59,10 +68,14 @@ $(OBJS): %$(OBJEXT): %.c
 $(BIN): $(OBJS)
 	@echo "LD: $<"
 	$(Q) $(LD) $(LDELFFLAGS) $(LDLIBPATH) -o $@ $(ARCHCRT0OBJ) $^ --start-group $(LDLIBS) --end-group
+ifeq ($(CONFIG_SUPPORT_COMMON_BINARY),y)
+	$(Q) $(NM) -u $(BIN) | awk -F"U " '{print "--require-defined "$$2}' >> $(USER_BIN_DIR)/lib_symbols.txt
+endif
 
 clean:
 	$(call DELFILE, $(BIN))
 	$(call DELFILE, $(USER_BIN_DIR)/$(BIN))
+	$(call DELFILE, $(TOPDIR)/../tools/fs/contents-smartfs/$(BOARDNAME)/base-files/bins/$(BIN)_$(BIN_VER))
 	$(call CLEAN)
 
 distclean: clean
@@ -75,13 +88,19 @@ ifeq ($(CONFIG_ELF_EXCLUDE_SYMBOLS),y)
 	$(Q) $(OBJCOPY) --remove-section .comment $(USER_BIN_DIR)/$(BIN)
 	$(Q) $(STRIP) -g $(USER_BIN_DIR)/$(BIN) -o $(USER_BIN_DIR)/$(BIN)
 endif
-	$(Q) $(TOPDIR)/tools/mkbinheader.py $(USER_BIN_DIR)/$(BIN) $(BIN_TYPE) $(KERNEL_VER) $(BIN) $(BIN_VER) $(DYNAMIC_RAM_SIZE) $(STACKSIZE) $(PRIORITY) $(COMPRESSION_TYPE) $(BLOCK_SIZE)
+	$(Q) $(TOPDIR)/tools/mkbinheader.py $(USER_BIN_DIR)/$(BIN) user $(BIN_TYPE) $(KERNEL_VER) $(BIN) $(BIN_VER) $(DYNAMIC_RAM_SIZE) $(STACKSIZE) $(PRIORITY) $(COMPRESSION_TYPE) $(BLOCK_SIZE) $(LOADING_PRIORITY)
 	$(Q) $(TOPDIR)/tools/mkchecksum.py $(USER_BIN_DIR)/$(BIN)
+	$(Q) mkdir -p $(TOPDIR)/../tools/fs/contents-smartfs/$(BOARDNAME)/base-files/bins
+	$(Q) cp $(USER_BIN_DIR)/$(BIN) $(TOPDIR)/../tools/fs/contents-smartfs/$(BOARDNAME)/base-files/bins/$(BIN)_$(BIN_VER)
 
 verify:
+# If we support common binary, then the symbols in the common binary will appear as UNDEFINED
+# in the application binary. So, verification is required only when we dont support common binary.
+ifneq ($(CONFIG_SUPPORT_COMMON_BINARY),y)
 	$(Q) if [ "`nm -u $(BIN) | wc -l`" != "0" ]; then \
 		echo "Undefined Symbols"; \
 		nm -u -l $(BIN); \
 		rm $(BIN); \
 		exit 1; \
 	fi
+endif

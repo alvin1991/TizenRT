@@ -80,18 +80,12 @@
 #include <tinyara/mm/shm.h>
 #include <tinyara/fs/fs.h>
 #include <tinyara/net/net.h>
-
+#include <tinyara/mpu.h>
 #include <arch/arch.h>
-
-/********************************************************************************
- * Pre-processor Definitions
- ********************************************************************************/
-#ifdef CONFIG_ARMV7M_MPU
-#define REG_RNR		0
-#define REG_RBAR	1
-#define REG_RASR	2
-#define MPU_REGS	3
+#ifdef CONFIG_ARMV8M_TRUSTZONE
+#include <tinyara/tz_context.h>
 #endif
+
 /* Configuration ****************************************************************/
 /* Task groups currently only supported for retention of child status */
 
@@ -223,6 +217,7 @@ enum tstate_e {
 
 	TSTATE_TASK_INACTIVE,		/* BLOCKED      - Initialized but not yet activated */
 	TSTATE_WAIT_SEM,			/* BLOCKED      - Waiting for a semaphore */
+	TSTATE_WAIT_FIN,		/* BLOCKED		- Waiting to be unblocked by fin */
 #ifndef CONFIG_DISABLE_SIGNALS
 	TSTATE_WAIT_SIG,			/* BLOCKED      - Waiting for a signal */
 #endif
@@ -371,7 +366,7 @@ struct task_group_s {
 	pid_t tg_task;				/* The ID of the task within the group      */
 #endif
 #if defined(CONFIG_BINARY_MANAGER)
-	pid_t tg_loadtask;			/* The ID of the main task in binary        */
+	int tg_binidx;				/* The Index of binary in binary table      */
 #endif
 
 	uint8_t tg_flags;			/* See GROUP_FLAG_* definitions             */
@@ -393,12 +388,6 @@ struct task_group_s {
 #ifdef CONFIG_SCHED_ONEXIT
 	/* on_exit support ********************************************************** */
 	sq_queue_t tg_onexitfunc;
-#endif
-
-#ifdef CONFIG_BINFMT_LOADABLE
-	/* Loadable module support *************************************************** */
-
-	FAR struct binary_s *tg_bininfo;	/* Describes resources used by program      */
 #endif
 
 #ifdef CONFIG_SCHED_HAVE_PARENT
@@ -501,11 +490,23 @@ struct task_group_s {
 
 	struct group_shm_s tg_shm;	/* Task shared memory logic                 */
 #endif
+
+#if defined(CONFIG_PREFERENCE) && CONFIG_TASK_NAME_SIZE > 0
+	/* Preference **************************************************************** */
+	/* The values of private preference are managed by task group.
+	 * Each 'value' is saved in a file named 'key' and they are located in a directory /mnt/private/<tg_name>.
+	 */
+	char tg_name[CONFIG_TASK_NAME_SIZE + 1]; /* Group name (with NULL terminator)  */
+#endif
 };
 #endif
 
 #ifdef CONFIG_BINFMT_LOADABLE
-#define IS_LOADED_MODULE(group)    (group->tg_bininfo != NULL)   /* Points loading data if it is loaded */
+/* This macro verifies whether the tcb is for a main task of the binary.
+ * It checks if the tcb is for a task and if it has non NULL loading data i.e. 'bininfo'
+ */
+#define IS_BINARY_MAINTASK(tcb)    (((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_TASK) \
+					&& (((struct task_tcb_s *)tcb)->bininfo != NULL))
 #endif
 
 /* struct tcb_s ******************************************************************/
@@ -520,6 +521,12 @@ struct tcb_s {
 
 	FAR struct tcb_s *flink;	/* Doubly linked list                  */
 	FAR struct tcb_s *blink;
+
+#ifdef CONFIG_BINARY_MANAGER
+	/* Fields used to support binary list management ***************************** */
+	FAR struct tcb_s *bin_flink;	/* Doubly linked list				   */
+	FAR struct tcb_s *bin_blink;
+#endif
 
 	/* Task Group **************************************************************** */
 
@@ -611,14 +618,24 @@ struct tcb_s {
 
 	struct xcptcontext xcp;		/* Interrupt register save area        */
 
+	uint32_t uheap;			/* User heap object pointer */
 #ifdef CONFIG_APP_BINARY_SEPARATION
-	uint32_t ram_start;		/* Start address of RAM partition for this app */
-	uint32_t ram_size;		/* Size of RAM partition for this app */
 	uint32_t uspace;		/* User space object for app binary */
 
-#ifdef CONFIG_ARMV7M_MPU
-	uint32_t mpu_regs[MPU_REGS];
+#ifdef CONFIG_ARM_MPU
+	uint32_t mpu_regs[MPU_REG_NUMBER * MPU_NUM_REGIONS];	/* MPU register values for loading data */
 #endif
+#endif
+
+#if defined(CONFIG_MPU_STACK_OVERFLOW_PROTECTION)
+uint32_t stack_mpu_regs[MPU_REG_NUMBER]; /* MPU register values for stack protection */
+#endif
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+	uint32_t app_id;			/* Indicates app id of the task and used to index into umm_heap_table */
+#endif
+
+#ifdef CONFIG_ARMV8M_TRUSTZONE
+	volatile TZ_ModuleId_t tz_context;
 #endif
 
 #if CONFIG_TASK_NAME_SIZE > 0
@@ -627,6 +644,9 @@ struct tcb_s {
 #ifdef CONFIG_TASK_MONITOR
 	bool is_active;
 #endif
+
+	int fin_data;			/* Irq notification Data to be handled */
+	int pending_fin_data;		/* Pended irq notification data */
 };
 
 /* struct task_tcb_s *************************************************************/
@@ -648,6 +668,11 @@ struct task_tcb_s {
 #ifdef CONFIG_SCHED_STARTHOOK
 	starthook_t starthook;		/* Task startup function               */
 	FAR void *starthookarg;		/* The argument passed to the function */
+#endif
+#ifdef CONFIG_BINFMT_LOADABLE
+	/* Loadable module support *************************************************** */
+
+	FAR struct binary_s *bininfo;	/* Describes resources used by program	*/
 #endif
 
 	/* Values needed to restart a task ******************************************* */
@@ -901,31 +926,6 @@ pid_t task_vforkstart(FAR struct task_tcb_s *child);
  */
 void task_vforkabort(FAR struct task_tcb_s *child, int errcode);
 
-#ifdef CONFIG_BINFMT_LOADABLE
-/****************************************************************************
- * Name: group_exitinfo
- *
- * Description:
- *   This function may be called to when a task is loaded into memory.  It
- *   will setup the to automatically unload the module when the task exits.
- *
- * Input Parameters:
- *   pid     - The task ID of the newly loaded task
- *   bininfo - This structure allocated with kmm_malloc().  This memory
- *             persists until the task exits and will be used unloads
- *             the module from memory.
- *
- * Returned Value:
- *   This is a NuttX internal function so it follows the convention that
- *   0 (OK) is returned on success and a negated errno is returned on
- *   failure.
- *
- ****************************************************************************/
-/**
- * @internal
- */
-int group_exitinfo(pid_t pid, FAR struct binary_s *bininfo);
-#endif
 /**
  * @endcond
  */

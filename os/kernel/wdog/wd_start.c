@@ -392,7 +392,7 @@ int wd_start(WDOG_ID wdog, int delay, wdentry_t wdentry, int argc, ...)
  *
  * Parameters:
  *   ticks - If CONFIG_SCHED_TICKLESS is defined then the number of ticks
- *     in the the interval that just expired is provided.  Otherwise,
+ *     in the interval that just expired is provided.  Otherwise,
  *     this function is called on each timer interrupt and a value of one
  *     is implicit.
  *
@@ -462,3 +462,35 @@ void wd_timer(void)
 	}
 }
 #endif							/* CONFIG_SCHED_TICKLESS */
+
+#ifdef CONFIG_SCHED_TICKSUPPRESS
+void wd_timer_nohz(int ticks)
+{
+	int ret;
+	FAR struct wdog_s *wdog;
+	int decr;
+
+	/* Check if there are any active watchdogs to process */
+
+	while (g_wdactivelist.head && ticks > 0) {
+		/* Get the watchdog at the head of the list */
+
+		wdog = (FAR struct wdog_s *)g_wdactivelist.head;
+
+		/* Decrement the lag for this watchdog. */
+
+		decr = MIN(wdog->lag, ticks);
+
+		/* There are.  Decrement the lag counter */
+
+		wdog->lag -= decr;
+		ticks -= decr;
+
+		/* Check if the watchdog at the head of the list is ready to run */
+
+		wd_expiration();
+	}
+
+	return ret;
+}
+#endif

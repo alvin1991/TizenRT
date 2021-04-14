@@ -56,10 +56,10 @@ SRCS = wifiapp.c
 ifeq ($(CONFIG_EXAMPLES_MESSAGING_TEST),y)
 SRCS += messaging.c
 endif
-ifeq ($(CONFIG_EXAMPLES_RECOVERY_TEST),y)
+ifneq ($(filter y,$(CONFIG_EXAMPLES_RECOVERY_TEST) $(CONFIG_EXAMPLES_RECOVERY_AGING_TEST)),)
 SRCS += recovery.c
 endif
-ifeq ($(CONFIG_EXAMPLES_BINARY_UPDATE_TEST),y)
+ifneq ($(filter y,$(CONFIG_EXAMPLES_BINARY_UPDATE_TEST) $(CONFIG_EXAMPLES_UPDATE_AGING_TEST)),)
 SRCS += binary_update.c
 endif
 #########################################
@@ -76,6 +76,7 @@ DYNAMIC_RAM_SIZE = 512000
 KERNEL_VER = 2.0
 STACKSIZE = 8192
 PRIORITY = 180
+LOADING_PRIORITY = MID
 
 include $(TOPDIR)/$(LOADABLEDIR)/loadable.mk
 

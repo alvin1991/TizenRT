@@ -45,10 +45,17 @@
 #include <tinyara/irq.h>
 #include <tinyara/board.h>
 #include <tinyara/pm/pm.h>
+#include <errno.h>
 
 #include "chip.h"
 #include "stm32l4_pm.h"
 #include "up_internal.h"
+#include "stm32l4_rtc.h"
+#include <tinyara/rtc.h>
+#include "stm32l4.h"
+#include "stm32l4_gpio.h"
+#include "stm32l4_start.h"
+#include "stm32l4xx_hal_interface.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -67,10 +74,78 @@
 #endif
 
 #define PM_IDLE_DOMAIN 0 /* Revisit */
+#define STM32L4_EXT_JOYKEY_ACTIVITY			4
 
+#ifdef CONFIG_SCHED_TICKSUPPRESS
+#ifndef CONFIG_STM32L4_RTC
+#error "Cannot support ticksuppress without RTC enabled (Enable CONFIG_STM32L4_RTC)"
+#endif
+#endif
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+#ifdef CONFIG_ARCH_SUPPORT_ENTER_SLEEP
+int up_pmsleep(void)
+{
+  int index;
+  int ret = OK;
+  irqstate_t flags;
+
+  flags = irqsave();
+  sched_lock();
+  for (index = PM_NORMAL; index < PM_SLEEP; index++)
+    {
+      if (pm_staycount(PM_IDLE_DOMAIN, index))
+        {
+          ret = -EAGAIN;
+          goto errout_lock;
+        }
+    }
+  ret = pm_changestate(0, PM_SLEEP);
+  if (ret < 0)
+    {
+      goto errout;
+    }
+  set_exti_button();
+  (void)stm32l4_pmstop2();
+
+  stm32l4_clockenable();
+errout:
+  pm_changestate(0, PM_NORMAL);
+errout_lock:
+  sched_unlock();
+  irqrestore(flags);
+
+  return ret;
+}
+#endif
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+void up_extiisr(int irq, uint32_t *regs)
+{
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_13);
+  up_lowputc('i');
+  pm_activity(PM_IDLE_DOMAIN, STM32L4_EXT_JOYKEY_ACTIVITY);
+}
+
+void set_exti_button(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};         /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_SLEEP_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();   /*Configure GPIO pin : PC13 */
+  __HAL_RCC_GPIOC_CLK_SLEEP_ENABLE();
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct); /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+  (void)irq_attach(STM32L4_IRQ_EXTI1510, (xcpt_t)up_extiisr, NULL);
+}
 
 /****************************************************************************
  * Name: up_idlepm
@@ -87,6 +162,11 @@ static void up_idlepm(void)
   enum pm_state_e newstate;
   irqstate_t flags;
   int ret;
+#ifdef CONFIG_STM32L4_RTC
+  long ns1, ns2;
+  clock_t time_intval;
+  struct tm tp1, tp2;
+#endif
 
   /* Decide, which power saving level can be obtained */
 
@@ -100,7 +180,7 @@ static void up_idlepm(void)
 
       /* Perform board-specific, state-dependent logic here */
 
-      _info("newstate= %d oldstate=%d\n", newstate, oldstate);
+      printf("newstate= %d oldstate=%d\n", newstate, oldstate);
 
       /* Then force the global state change */
 
@@ -129,11 +209,57 @@ static void up_idlepm(void)
           break;
 
         case PM_STANDBY:
-          stm32l4_pmstop(true);
+#ifdef CONFIG_SCHED_TICKSUPPRESS
+#ifdef CONFIG_STM32L4_RTC
+          /* Note RTC time before sleep */
+          stm32l4_rtc_getdatetime_with_subseconds(&tp1, &ns1);
+#endif
+          /* Disable tick interrupts */
+          supress_ticks();
+          /* Set waketime interrupt for tickless idle  */
+          set_waketime_interrupt();
+          /* Enter sleep mode */
+          stm32l4_pmsleep(false);
+#ifdef CONFIG_STM32L4_RTC
+          /* Read RTC time after wakeup */
+          stm32l4_rtc_getdatetime_with_subseconds(&tp2, &ns2);
+          time_intval = SEC2TICK(mktime(&tp2) - mktime(&tp1)) + NSEC2TICK(ns2 - ns1);
+          /* Update ticks */
+          g_system_timer +=  time_intval;
+          uwTick += TICK2MSEC(time_intval);
+          /* Execute waketime interrupt */
+          execute_waketime_interrupt(time_intval);
+#endif
+          /* Enable tick interrupts */
+          enable_ticks();
+
+          /* We dont want state change directly
+           * it is the resposibility of the scheduled
+           * event to inform the PM Core about the
+           * pm activity based on its requirement */
+          //oldstate = PM_IDLE;	/* Re visit */
+#else
+          stm32l4_pmsleep(false);
+#endif		/* CONFIG_SCHED_TICKSUPPRESS */
+
           break;
 
         case PM_SLEEP:
-          (void)stm32l4_pmstandby();
+          /* Set EXTI interrupt */
+          set_exti_button();
+
+          (void)stm32l4_pmstop2();
+
+          /* Re configure clocks */
+          stm32l4_clockenable();
+
+          ret = pm_changestate(PM_IDLE_DOMAIN, PM_NORMAL);
+          if (ret < 0)
+            {
+              oldstate = PM_NORMAL;
+            }
+
+          printf("Wakeup from STOP2!!\n");
           break;
 
         default:

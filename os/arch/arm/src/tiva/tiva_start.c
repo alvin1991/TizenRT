@@ -68,7 +68,6 @@
 
 #include "tiva_lowputc.h"
 #include "tiva_syscontrol.h"
-#include "tiva_userspace.h"
 #include "tiva_start.h"
 
 /****************************************************************************
@@ -159,21 +158,10 @@ void __start(void)
 #endif
 	showprogress('D');
 
-	/* For the case of the separate user-/kernel-space build, perform whatever
-	 * platform specific initialization of the user memory is required.
-	 * Normally this just means initializing the user space .data and .bss
-	 * segments.
-	 */
-
-#ifdef CONFIG_BUILD_PROTECTED
-	tiva_userspace();
-	showprogress('E');
-#endif
-
 	/* Initialize onboard resources */
 
 	tiva_boardinitialize();
-	showprogress('F');
+	showprogress('E');
 
 	/* Then start NuttX */
 

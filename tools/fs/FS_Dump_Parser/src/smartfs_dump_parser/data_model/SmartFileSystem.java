@@ -1,7 +1,27 @@
+////////////////////////////////////////////////////////////////////
+//
+// Copyright 2019 Samsung Electronics All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied. See the License for the specific
+// language governing permissions and limitations under the License.
+//
+////////////////////////////////////////////////////////////////////
+
 package smartfs_dump_parser.data_model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class SmartFileSystem {
 
@@ -14,18 +34,25 @@ public class SmartFileSystem {
 	private static final int SECTOR_STATUS_SIZEBITS = 0x1C;
 	private static final int SIGNATURE_LOGICAL_SECTOR_ID = 0;
 	private static final int ROOT_LOGICAL_SECTOR_ID = 3;
+	private static final int JOURNAL_AREA_START_SECTOR_ID = 12;
+	private static final int JOURNAL_SECTOR_NUMBER = (8 + 1) * 2;
 	private static final int MIN_SECTOR_SIZE = 256; // bytes
 	private static final int MAX_SECTOR_SIZE = 65536; // In TizenRT, 4 bytes are used for sector IDs in SmartFS.
+	private static final int[][] JOURNAL_AREA_MAP = { { -1, 1, 1, -1 }, { 0, 0, 0, 0 }, { 0, 1, 0, 0 },
+			{ -1, 1, 1, -1 } };
+
 	private static final String SMARTFS_ROOT = "/mnt";
-	private static final SmartFile dummy = new SmartFile("/", EntryType.DIRECTORY, null, new ArrayList<Sector>());
+	private static final SmartFile dummy = new SmartFile("/", EntryType.DIRECTORY, null,
+			new HashMap<Integer, Sector>());
 
 	private static boolean isValidSmartFS = false;
 	private static int mSectorSize = MIN_SECTOR_SIZE;
 	private static int mNumberOfSectors = 0;
 	private static List<Sector> mSectorList = new ArrayList<Sector>();
-	private static List<Sector> mActiveSectors = new ArrayList<Sector>();
-	private static List<Sector> mDirtySectors = new ArrayList<Sector>();
-	private static List<Sector> mCleanSectors = new ArrayList<Sector>();
+	private static Map<Integer, Sector> mActiveSectorsMap = new HashMap<Integer, Sector>();
+	private static Map<Integer, Sector> mDirtySectorsMap = new HashMap<Integer, Sector>();
+	private static Map<Integer, Sector> mCleanSectorsMap = new HashMap<Integer, Sector>();
+	private static List<JournalingInformation> mJournalingInformation = new ArrayList<JournalingInformation>();
 	private static SmartFile mRootDir = null;
 
 	// Singleton Design Pattern
@@ -69,12 +96,24 @@ public class SmartFileSystem {
 		return (logicalSectorId == ROOT_LOGICAL_SECTOR_ID);
 	}
 
+	public static int getJournalAreaStartSectorId() {
+		return JOURNAL_AREA_START_SECTOR_ID;
+	}
+
+	public static int getJournalSectorNumber() {
+		return JOURNAL_SECTOR_NUMBER;
+	}
+
 	public static int getMinSectorSize() {
 		return MIN_SECTOR_SIZE;
 	}
 
 	public static int getMaxSectorSize() {
 		return MAX_SECTOR_SIZE;
+	}
+
+	public static int getJournalArea(int area_index_row, int area_index_col) {
+		return JOURNAL_AREA_MAP[area_index_row][area_index_col];
 	}
 
 	public static String getSmartFSRoot() {
@@ -117,28 +156,36 @@ public class SmartFileSystem {
 		mSectorList.clear();
 	}
 
-	public static List<Sector> getActiveSectors() {
-		return mActiveSectors;
+	public static Map<Integer, Sector> getActiveSectorsMap() {
+		return mActiveSectorsMap;
 	}
 
-	public static void setActiveSectors(List<Sector> sectors) {
-		mActiveSectors = sectors;
+	public static void setActiveSectorsMap(Map<Integer, Sector> sectorsMap) {
+		mActiveSectorsMap = sectorsMap;
 	}
 
-	public static List<Sector> getDirtySectors() {
-		return mDirtySectors;
+	public static Map<Integer, Sector> getDirtySectorsMap() {
+		return mDirtySectorsMap;
 	}
 
-	public static void setDirtySectors(List<Sector> sectors) {
-		mDirtySectors = sectors;
+	public static void setDirtySectorsMap(Map<Integer, Sector> sectorsMap) {
+		mDirtySectorsMap = sectorsMap;
 	}
 
-	public static List<Sector> getCleanSectors() {
-		return mCleanSectors;
+	public static Map<Integer, Sector> getCleanSectorsMap() {
+		return mCleanSectorsMap;
 	}
 
-	public static void setCleanSectors(List<Sector> sectors) {
-		mCleanSectors = sectors;
+	public static void setCleanSectorsMap(Map<Integer, Sector> sectorsMap) {
+		mCleanSectorsMap = sectorsMap;
+	}
+
+	public static List<JournalingInformation> getJournalingInformation() {
+		return mJournalingInformation;
+	}
+
+	public static void clearJouranlingInformation() {
+		mJournalingInformation.clear();
 	}
 
 	public static SmartFile getRootDirectory() {
@@ -156,9 +203,9 @@ public class SmartFileSystem {
 	public static void clearFileSystem() {
 		isValidSmartFS = false;
 		mSectorList.clear();
-		mActiveSectors.clear();
-		mDirtySectors.clear();
-		mCleanSectors.clear();
+		mActiveSectorsMap.clear();
+		mDirtySectorsMap.clear();
+		mCleanSectorsMap.clear();
 		mRootDir = null;
 		dummy.getEntries().clear();
 	}

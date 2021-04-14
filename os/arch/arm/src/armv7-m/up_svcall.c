@@ -74,6 +74,7 @@
 #include "up_internal.h"
 #ifdef CONFIG_ARMV7M_MPU
 #include "mpu.h"
+#include <tinyara/mpu.h>
 #endif
 
 #define INDEX_ERROR (-1)
@@ -96,8 +97,11 @@
 #define svcdbg(...)
 #endif
 
-#ifdef CONFIG_BINMGR_RECOVERY
+#ifdef CONFIG_APP_BINARY_SEPARATION
 extern uint32_t g_assertpc;
+#endif
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+extern uint32_t *g_umm_app_id;
 #endif
 /****************************************************************************
  * Private Data
@@ -179,6 +183,9 @@ static void dispatch_syscall(void)
 int up_svcall(int irq, FAR void *context, FAR void *arg)
 {
 	uint32_t *regs = (uint32_t *)context;
+#if defined(CONFIG_BUILD_PROTECTED)
+	struct tcb_s *rtcb = sched_self();
+#endif
 	uint32_t cmd;
 
 	DEBUGASSERT(regs && regs == current_regs);
@@ -187,7 +194,7 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 	/* The SVCall software interrupt is called with R0 = system call command
 	 * and R1..R7 =  variable number of arguments depending on the system call.
 	 */
-#ifdef CONFIG_BINMGR_RECOVERY
+#ifdef CONFIG_APP_BINARY_SEPARATION
 	g_assertpc = regs[REG_R14];
 #endif
 
@@ -231,7 +238,7 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 	case SYS_save_context: {
 		DEBUGASSERT(regs[REG_R1] != 0);
 		memcpy((uint32_t *)regs[REG_R1], regs, XCPTCONTEXT_SIZE);
-#if defined(CONFIG_ARCH_FPU) && !defined(CONFIG_ARMV7M_CMNVECTOR)
+#if defined(CONFIG_ARCH_FPU) && !defined(CONFIG_ARM_CMNVECTOR)
 		up_savefpu((uint32_t *)regs[REG_R1]);
 #endif
 	}
@@ -256,12 +263,26 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 		DEBUGASSERT(regs[REG_R1] != 0);
 		current_regs = (uint32_t *)regs[REG_R1];
 
-#if defined(CONFIG_ARMV7M_MPU) || defined(CONFIG_TASK_MONITOR)
+#if (defined(CONFIG_ARMV7M_MPU) && defined(CONFIG_APP_BINARY_SEPARATION)) || defined(CONFIG_TASK_MONITOR)
 		struct tcb_s *tcb = sched_self();
 #endif
 		/* Restore the MPU registers in case we are switching to an application task */
-#ifdef CONFIG_ARMV7M_MPU
-		up_set_mpu_app_configuration(tcb);
+#if (defined(CONFIG_ARMV7M_MPU) && defined(CONFIG_APP_BINARY_SEPARATION))
+		/* Condition check : Update MPU registers only if this is not a kernel thread. */
+		if ((tcb->flags & TCB_FLAG_TTYPE_MASK) != TCB_FLAG_TTYPE_KERNEL) {
+			for (int i = 0; i < MPU_REG_NUMBER * MPU_NUM_REGIONS; i += MPU_REG_NUMBER) {
+				up_mpu_set_register(&tcb->mpu_regs[i]);
+			}
+		}
+#ifdef CONFIG_MPU_STACK_OVERFLOW_PROTECTION
+		up_mpu_set_register(tcb->stack_mpu_regs);
+#endif
+#endif
+
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+		if (g_umm_app_id) {
+			*g_umm_app_id = tcb->app_id;
+		}
 #endif
 #ifdef CONFIG_TASK_MONITOR
 		/* Update tcb active flag for monitoring. */
@@ -289,17 +310,31 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 	case SYS_switch_context: {
 		DEBUGASSERT(regs[REG_R1] != 0 && regs[REG_R2] != 0);
 		memcpy((uint32_t *)regs[REG_R1], regs, XCPTCONTEXT_SIZE);
-#if defined(CONFIG_ARCH_FPU) && !defined(CONFIG_ARMV7M_CMNVECTOR)
+#if defined(CONFIG_ARCH_FPU) && !defined(CONFIG_ARM_CMNVECTOR)
 		up_savefpu((uint32_t *)regs[REG_R1]);
 #endif
 		current_regs = (uint32_t *)regs[REG_R2];
 
-#if defined(CONFIG_ARMV7M_MPU) || defined(CONFIG_TASK_MONITOR)
+#if (defined(CONFIG_ARMV7M_MPU) && defined(CONFIG_APP_BINARY_SEPARATION)) || defined(CONFIG_TASK_MONITOR)
 		struct tcb_s *tcb = sched_self();
 #endif
 		/* Restore the MPU registers in case we are switching to an application task */
-#ifdef CONFIG_ARMV7M_MPU
-		up_set_mpu_app_configuration(tcb);
+#if (defined(CONFIG_ARMV7M_MPU) && defined(CONFIG_APP_BINARY_SEPARATION))
+		/* Condition check : Update MPU registers only if this is not a kernel thread. */
+		if ((tcb->flags & TCB_FLAG_TTYPE_MASK) != TCB_FLAG_TTYPE_KERNEL) {
+			for (int i = 0; i < MPU_REG_NUMBER * MPU_NUM_REGIONS; i += MPU_REG_NUMBER) {
+				up_mpu_set_register(&tcb->mpu_regs[i]);
+			}
+		}
+#ifdef CONFIG_MPU_STACK_OVERFLOW_PROTECTION
+		up_mpu_set_register(tcb->stack_mpu_regs);
+#endif
+#endif
+
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+		if (g_umm_app_id) {
+			*g_umm_app_id = tcb->app_id;
+		}
 #endif
 #ifdef CONFIG_TASK_MONITOR
 		/* Update tcb active flag for monitoring. */
@@ -322,7 +357,6 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 
 #ifdef CONFIG_LIB_SYSCALL
 	case SYS_syscall_return: {
-		struct tcb_s *rtcb = sched_self();
 		int index = (int)rtcb->xcp.nsyscalls - 1;
 
 		/* Make sure that there is a saved syscall return address. */
@@ -370,21 +404,14 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 		 * unprivileged mode.
 		 */
 
-#ifdef CONFIG_APP_BINARY_SEPARATION
+		DEBUGASSERT(rtcb->uspace);
 		/* While starting loadable apps, we cannot go through the
 		* USERSPACE->task_startup method. Instead we pick the PC value
 		* from the app's userspace object stored in its tcb.
 		*
-		* Here, we check if this task is a loadable app (non-zero ram_start)
+		* Here, we check if this task is a loadable app (non-zero uspace)
 		*/
-		if (((struct tcb_s *)sched_self())->ram_start) {
-			regs[REG_PC] = (uint32_t)((struct userspace_s *)(((struct tcb_s *)sched_self())->uspace))->task_startup;
-		} else
-		/* If its a normal non-loadable user app, then follow the default method */
-#endif
-		{
-			regs[REG_PC] = (uint32_t)USERSPACE->task_startup;
-		}
+		regs[REG_PC] = (uint32_t)((struct userspace_s *)(rtcb->uspace))->task_startup;
 
 		regs[REG_EXC_RETURN] = EXC_RETURN_UNPRIVTHR;
 
@@ -417,21 +444,14 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 		 * unprivileged mode.
 		 */
 
-#ifdef CONFIG_APP_BINARY_SEPARATION
+		DEBUGASSERT(rtcb->uspace);
 		/* While starting loadable apps, we cannot go through the
 		* USERSPACE->task_startup method. Instead we pick the PC value
 		* from the app's userspace object stored in its tcb.
 		*
-		* Here, we check if this task is a loadable app (non-zero ram_start)
+		* Here, we check if this task is a loadable app (non-zero uspace)
 		*/
-		if (((struct tcb_s *)sched_self())->ram_start) {
-			regs[REG_PC] = (uint32_t)((struct userspace_s *)(((struct tcb_s *)sched_self())->uspace))->pthread_startup;
-		} else
-		/* If its a normal non-loadable user app, then follow the default method */
-#endif
-		{
-			regs[REG_PC] = (uint32_t)USERSPACE->pthread_startup;
-		}
+		regs[REG_PC] = (uint32_t)((struct userspace_s *)(rtcb->uspace))->pthread_startup;
 
 		regs[REG_EXC_RETURN] = EXC_RETURN_UNPRIVTHR;
 
@@ -461,32 +481,24 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 
 #if defined(CONFIG_BUILD_PROTECTED) && !defined(CONFIG_DISABLE_SIGNALS)
 	case SYS_signal_handler: {
-		struct tcb_s *rtcb = sched_self();
 
 		/* Remember the caller's return address */
 
 		DEBUGASSERT(rtcb->xcp.sigreturn == 0);
+		DEBUGASSERT(rtcb->uspace);
 		rtcb->xcp.sigreturn = regs[REG_PC];
 
 		/* Set up to return to the user-space pthread start-up function in
 		 * unprivileged mode.
 		 */
 
-#ifdef CONFIG_APP_BINARY_SEPARATION
 		/* While starting loadable apps, we cannot go through the
 		* USERSPACE->task_startup method. Instead we pick the PC value
 		* from the app's userspace object stored in its tcb.
 		*
-		* Here, we check if this task is a loadable app (non-zero ram_start)
+		* Here, we check if this task is a loadable app (non-zero uspace)
 		*/
-		if (rtcb->ram_start) {
-			regs[REG_PC] = (uint32_t)((struct userspace_s *)(rtcb->uspace))->signal_handler;
-		} else
-		/* If its a normal non-loadable user app, then follow the default method */
-#endif
-		{
-			regs[REG_PC] = (uint32_t)USERSPACE->signal_handler;
-		}
+		regs[REG_PC] = (uint32_t)((struct userspace_s *)(rtcb->uspace))->signal_handler;
 
 		regs[REG_EXC_RETURN] = EXC_RETURN_UNPRIVTHR;
 
@@ -518,7 +530,6 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 
 #if defined(CONFIG_BUILD_PROTECTED) && !defined(CONFIG_DISABLE_SIGNALS)
 	case SYS_signal_handler_return: {
-		struct tcb_s *rtcb = sched_self();
 
 		/* Set up to return to the kernel-mode signal dispatching logic. */
 
@@ -538,7 +549,6 @@ int up_svcall(int irq, FAR void *context, FAR void *arg)
 
 	default: {
 #ifdef CONFIG_LIB_SYSCALL
-		FAR struct tcb_s *rtcb = sched_self();
 		int index = rtcb->xcp.nsyscalls;
 
 		/* Verify that the SYS call number is within range */

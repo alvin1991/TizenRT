@@ -78,8 +78,8 @@
 #ifdef CONFIG_SCHED_CPULOAD
 #include <tinyara/cpuload.h>
 #endif
-#ifdef CONFIG_ENABLE_HEAPINFO
-#include <tinyara/heapinfo_drv.h>
+#ifdef CONFIG_MMINFO
+#include <tinyara/mminfo.h>
 #endif
 #ifdef CONFIG_TASK_MANAGER
 #include <tinyara/task_manager_drv.h>
@@ -279,6 +279,10 @@ static inline void os_do_appstart(void)
 	messaging_initialize();
 #endif
 
+#ifdef CONFIG_MMINFO
+	mminfo_register();
+#endif
+
 #ifdef CONFIG_TASK_MONITOR
 	pid = kernel_thread("taskmonitor", CONFIG_TASK_MONITOR_PRIORITY, 1024, task_monitor, (FAR char *const *)NULL);
 	if (pid < 0) {
@@ -289,12 +293,7 @@ static inline void os_do_appstart(void)
 #if defined(CONFIG_SYSTEM_PREAPP_INIT) && !defined(CONFIG_APP_BINARY_SEPARATION)
 	svdbg("Starting application init task\n");
 
-#ifdef CONFIG_BUILD_PROTECTED
-	DEBUGASSERT(USERSPACE->preapp_start != NULL);
-	pid = task_create("appinit", SCHED_PRIORITY_DEFAULT, CONFIG_SYSTEM_PREAPP_STACKSIZE, USERSPACE->preapp_start, (FAR char *const *)NULL);
-#else
 	pid = task_create("appinit", SCHED_PRIORITY_DEFAULT, CONFIG_SYSTEM_PREAPP_STACKSIZE, preapp_start, (FAR char *const *)NULL);
-#endif
 	if (pid < 0) {
 		svdbg("Failed to create application init thread\n");
 	}
@@ -309,10 +308,6 @@ static inline void os_do_appstart(void)
 	}
 #endif
 
-#ifdef CONFIG_ENABLE_HEAPINFO
-	heapinfo_drv_register();
-#endif
-
 #if !defined(CONFIG_BINARY_MANAGER)
 	/* Start the application initialization task.  In a flat build, this is
 	 * entrypoint is given by the definitions, CONFIG_USER_ENTRYPOINT.  In
@@ -322,11 +317,7 @@ static inline void os_do_appstart(void)
 
 	svdbg("Starting application main task\n");
 
-#ifdef CONFIG_BUILD_PROTECTED
-	if (USERSPACE->us_entrypoint != NULL) {
-		pid = task_create("appmain", SCHED_PRIORITY_DEFAULT, CONFIG_USERMAIN_STACKSIZE, USERSPACE->us_entrypoint, (FAR char *const *)NULL);
-	}
-#elif defined(CONFIG_USER_ENTRYPOINT)
+#if defined(CONFIG_USER_ENTRYPOINT)
 	pid = task_create("appmain", SCHED_PRIORITY_DEFAULT, CONFIG_USERMAIN_STACKSIZE, (main_t)CONFIG_USER_ENTRYPOINT, (FAR char *const *)NULL);
 #endif
 #endif // !CONFIG_BINARY_MANAGER

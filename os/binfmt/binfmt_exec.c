@@ -69,11 +69,6 @@
 
 #ifdef CONFIG_BINFMT_ENABLE
 
-#ifdef CONFIG_ARMV7M_MPU
-extern uint32_t g_app_mpu_region;
-extern void mpu_user_extsram_context(uint32_t region, uintptr_t base, size_t size, uint32_t *regs);
-#endif
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -150,9 +145,10 @@ int exec(FAR const char *filename, FAR char *const *argv, FAR const struct symta
 	/* Allocate the RAM partition to load the app into */
 	uint32_t *start_addr;
 	uint32_t size = 0;
-	struct tcb_s *tcb;
 
-	if (mm_allocate_ram_partition(&start_addr, &size, NULL) < 0) {
+	start_addr = kmm_memalign(size, size);
+
+	if (!start_addr) {
 		berr("ERROR: Failed to allocate RAM partition\n");
 		errcode = ENOMEM;
 		goto errout;
@@ -202,21 +198,6 @@ int exec(FAR const char *filename, FAR char *const *argv, FAR const struct symta
 
 	sched_lock();
 
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	/* The first 4 bytes of the text section of the application must contain a
-	pointer to the application's mm_heap object. Here we will store the mm_heap
-	pointer to the start of the text section */
-	*(uint32_t *)(bin->alloc[0]) = (uint32_t)start_addr;
-	tcb = (struct tcb_s*)sched_self();
-	tcb->ram_start = (uint32_t)start_addr;
-
-	/* Initialize the MPU registers in tcb with suitable protection values */
-#ifdef CONFIG_ARMV7M_MPU
-	mpu_user_extsram_context(g_app_mpu_region, (uintptr_t)start_addr, size, tcb->mpu_regs);
-#endif
-
-#endif
-
 	/* Then start the module */
 
 	pid = exec_module(bin);
@@ -226,37 +207,8 @@ int exec(FAR const char *filename, FAR char *const *argv, FAR const struct symta
 		goto errout_with_lock;
 	}
 
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	tcb->ram_start = 0;
-	tcb = sched_gettcb(pid);
-	if (tcb == NULL) {
-		errcode = ESRCH;
-		goto errout_with_lock;
-	}
-	tcb->ram_start = (uint32_t)start_addr;
-	tcb->ram_size = size;
-#endif
-
-#ifdef CONFIG_BINFMT_LOADABLE
-	/* Set up to unload the module (and free the binary_s structure)
-	 * when the task exists.
-	 */
-
-	ret = group_exitinfo(pid, bin);
-	if (ret < 0) {
-		berr("ERROR: Failed to schedule unload '%s': %d\n", filename, ret);
-	}
-#else
-	/* Free the binary_s structure here */
-
-	binfmt_freeargv(bin);
-	kmm_free(bin);
-
-	/* TODO: How does the module get unloaded in this case? */
-#endif
-
 #ifdef CONFIG_DEBUG
-	dbg("%s loaded @ 0x%08x and running with pid = %d\n", bin->filename, bin->alloc[0], pid);
+	dbg("%s loaded @ 0x%08x and running with pid = %d\n", bin->filename, bin->alloc[ALLOC_TEXT], pid);
 #endif
 
 	sched_unlock();
@@ -271,7 +223,7 @@ errout_with_bin:
 	kmm_free(bin);
 err_free_partition:
 #ifdef CONFIG_APP_BINARY_SEPARATION
-	mm_free_ram_partition((uint32_t)start_addr);
+	kmm_free((void *)start_addr);
 errout:
 #endif
 	set_errno(errcode);

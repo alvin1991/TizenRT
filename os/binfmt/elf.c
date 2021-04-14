@@ -74,14 +74,6 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-/* CONFIG_DEBUG, CONFIG_DEBUG_INFO, and CONFIG_DEBUG_BINFMT have to be
- * defined or CONFIG_ELF_DUMPBUFFER does nothing.
- */
-
-#if !defined(CONFIG_DEBUG_INFO) || !defined(CONFIG_DEBUG_BINFMT)
-#undef CONFIG_ELF_DUMPBUFFER
-#endif
-
 #ifndef CONFIG_ELF_STACKSIZE
 #define CONFIG_ELF_STACKSIZE 2048
 #endif
@@ -244,12 +236,11 @@ static int elf_loadbinary(FAR struct binary_s *binp)
 	loadinfo.offset = binp->offset;
 	loadinfo.filelen = binp->filelen;
 	loadinfo.compression_type = binp->compression_type;
-
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	loadinfo.binp = binp;
+#endif
 
 	ret = elf_init(binp->filename, &loadinfo);
-#ifdef CONFIG_APP_BINARY_SEPARATION
-	loadinfo.uheap = binp->uheap;
-#endif
 	elf_dumploadinfo(&loadinfo);
 	if (ret != 0) {
 		berr("Failed to initialize for load of ELF program: %d\n", ret);
@@ -295,12 +286,28 @@ static int elf_loadbinary(FAR struct binary_s *binp)
 
 	up_addrenv_clone(&loadinfo.addrenv, &binp->addrenv);
 #else
-	binp->alloc[0] = (FAR void *)loadinfo.textalloc;
+	binp->alloc[ALLOC_TEXT] = (FAR void *)loadinfo.textalloc;
+#if defined(CONFIG_SUPPORT_COMMON_BINARY) || defined(CONFIG_OPTIMIZE_APP_RELOAD_TIME)
+	binp->textsize = loadinfo.textsize;
+#endif
 #ifdef CONFIG_BINFMT_CONSTRUCTORS
-	binp->alloc[1] = loadinfo.ctoralloc;
-	binp->alloc[2] = loadinfo.dtoralloc;
+	binp->alloc[ALLOC_CTOR] = loadinfo.ctoralloc;
+	binp->alloc[ALLOC_DTOR] = loadinfo.dtoralloc;
 #endif
 #endif
+
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+	binp->alloc[ALLOC_RO] = (FAR void *)loadinfo.roalloc;
+	binp->alloc[ALLOC_DATA] = (FAR void *)loadinfo.dataalloc;
+	binp->rosize = loadinfo.rosize;
+	/* loadinfo.datasize includes the size of data and bss sections.
+	 * But, binp->datasize is used to backup the data section as
+	 * part of RO region. So, we subtract bss size from loadinfo.datasize
+	 * to obtain the size of just the data backup.
+	 */
+	binp->datasize = loadinfo.datasize - binp->bsssize;
+#endif
+	binp->datastart = loadinfo.dataalloc;
 
 #ifdef CONFIG_BINFMT_CONSTRUCTORS
 	/* Save information about constructors and destructors. */

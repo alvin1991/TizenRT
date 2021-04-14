@@ -72,6 +72,7 @@
 #include <tinyara/fs/mtd.h>
 #include <tinyara/fs/smart.h>
 #include <tinyara/fs/ioctl.h>
+#include <limits.h>
 
 #include "nxfuse.h"
 
@@ -82,7 +83,7 @@
 struct fs_ops_s {
 	const char *fs_name;
 	void *(*vmount)(const char *datasource, const char *mount_point, int erasesize, int sectsize, int pagesize, char *generic);
-	int (*mkfs)(const char *datasource, int erasesize, int sectsize, int pagesize, char *, int confirm);
+	int (*mkfs)(const char *datasource, uint32_t erasesize, uint16_t sectsize, int pagesize, char *, int confirm);
 	const struct mountpt_operations *pops;
 };
 
@@ -93,14 +94,16 @@ struct fs_ops_s {
 #ifdef CONFIG_FS_SMARTFS
 extern const struct mountpt_operations smartfs_operations;
 #endif
+extern void filemtd_teardown(FAR struct mtd_dev_s *dev);
+extern FAR struct mtd_dev_s *filemtd_initialize(FAR const char *path, size_t offset, int16_t sectsize, int32_t erasesize);
 
 /****************************************************************************
  * Private Function Prototypes
  ****************************************************************************/
 
 #ifdef CONFIG_FS_SMARTFS
-static void *smartfs_vmount(const char *datasource, const char *mount_point, int erasesize, int sectsize, int pagesize, char *generic);
-static int smartfs_mkfs(const char *datasource, int erasesize, int sectsize, int pagesize, char *generic, int confirm);
+static void *smartfs_vmount(const char *datasource, const char *mount_point, uint32_t erasesize, uint16_t sectsize, int pagesize, char *generic);
+static int smartfs_mkfs(const char *datasource, uint32_t erasesize, uint16_t sectsize, int pagesize, char *generic, int confirm);
 #endif
 
 /****************************************************************************
@@ -181,12 +184,12 @@ int register_blockdriver(FAR const char *path, FAR const struct block_operations
 	struct inode *node;
 	int ret;
 
-	node = calloc(sizeof(struct inode) + strlen(path), 1);
+	node = calloc(sizeof(struct inode) + PATH_MAX, 1);
 	if (node == NULL) {
 		return -1;
 	}
 
-	strcpy(node->i_name, path);
+	strncpy(node->i_name, path, PATH_MAX);
 	node->i_crefs = 0;
 	node->i_peer = NULL;
 	node->i_child = NULL;
@@ -288,7 +291,7 @@ int dbg(const char *fmt, ...)
  *
  ****************************************************************************/
 
-#ifdef CONFIG_DEBUG
+#ifdef CONFIG_DEBUG_VERBOSE
 int vdbg(const char *fmt, ...)
 {
 	va_list args;
@@ -360,7 +363,7 @@ struct inode *vmount(const char *datasource, const char *mount_point, const char
  ****************************************************************************/
 
 #ifdef CONFIG_FS_SMARTFS
-void *smartfs_vmount(const char *datasource, const char *mount_point, int erasesize, int sectsize, int pagesize, char *generic)
+void *smartfs_vmount(const char *datasource, const char *mount_point, uint32_t erasesize, uint16_t sectsize, int pagesize, char *generic)
 {
 	int ret;
 	int offset = 0;
@@ -427,7 +430,7 @@ void *smartfs_vmount(const char *datasource, const char *mount_point, int erases
  *
  ****************************************************************************/
 
-int mkfs(const char *datasource, const char *fs_type, int erasesize, int sectsize, int pagesize, char *generic, int confirm)
+int mkfs(const char *datasource, const char *fs_type, uint32_t erasesize, uint16_t sectsize, int pagesize, char *generic, int confirm)
 {
 	int x;
 	int ret = -ENODEV;
@@ -499,9 +502,10 @@ static int smartfs_umount(struct inode *blkdriver, void *fshandle)
  *
  ****************************************************************************/
 
-static int smartfs_mkfs(const char *datasource, int erasesize, int sectsize, int pagesize, char *generic, int confirm)
+static int smartfs_mkfs(const char *datasource, uint32_t erasesize, uint16_t sectsize, int pagesize, char *generic, int confirm)
 {
-	int ret = OK, x;
+	int ret;
+	int x;
 	void *fshandle;
 	struct inode *blkdriver;
 	uint8_t type;
@@ -540,9 +544,9 @@ static int smartfs_mkfs(const char *datasource, int erasesize, int sectsize, int
 	/* Perform a low-level SMART format */
 
 #ifdef CONFIG_SMARTFS_MULTI_ROOT_DIRS
-	ret = blkdriver->u.i_bops->ioctl(blkdriver, BIOC_LLFORMAT, (sectsize << 16) | atoi(generic));
+	ret = blkdriver->u.i_bops->ioctl(blkdriver, BIOC_LLFORMAT, ((uint64_t)sectsize << 16) | atoi(generic));
 #else
-	ret = blkdriver->u.i_bops->ioctl(blkdriver, BIOC_LLFORMAT, sectsize << 16);
+	ret = blkdriver->u.i_bops->ioctl(blkdriver, BIOC_LLFORMAT, ((uint64_t)sectsize << 16));
 #endif
 	if (ret != OK) {
 		close_blockdriver(blkdriver);
@@ -594,11 +598,8 @@ static int smartfs_mkfs(const char *datasource, int erasesize, int sectsize, int
 		}
 	}
 
-	if (ret == OK) {
-		printf("Format successful\n");
-	} else {
-		printf("Error %d during format\n", ret);
-	}
+	printf("Format successful\n");
+
 	return ret;
 }
 #endif							/* CONFIG_FS_SMARTFS */

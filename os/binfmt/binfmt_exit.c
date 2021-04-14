@@ -61,8 +61,12 @@
 #include <debug.h>
 #ifdef CONFIG_APP_BINARY_SEPARATION
 #include <queue.h>
+#ifdef CONFIG_SAVE_BIN_SECTION_ADDR
+#include "libelf/libelf.h"
+#endif
 #endif
 
+#include <tinyara/mm/mm.h>
 #include <tinyara/kmalloc.h>
 #include <tinyara/binfmt/binfmt.h>
 
@@ -114,6 +118,10 @@ int binfmt_exit(FAR struct binary_s *bin)
 		berr("ERROR: unload_module() failed: %d\n", ret);
 	}
 
+#ifdef CONFIG_SAVE_BIN_SECTION_ADDR
+	elf_delete_bin_section_addr(bin);
+#endif
+
 #ifdef CONFIG_APP_BINARY_SEPARATION
 	uheap_start = (uint32_t)bin->uheap;
 	uheap_end = uheap_start + bin->uheap_size;
@@ -129,13 +137,21 @@ int binfmt_exit(FAR struct binary_s *bin)
 		}
 		address = (FAR void *)sq_next((FAR sq_entry_t *)address);
 	}
-
-	/* Free the RAM partition into which this app was loaded */
-	mm_free_ram_partition((uint32_t)bin->uheap);
+	mm_disable_app_heap_list(bin->uheap);
 #endif
 	/* Free the load structure */
 
-	kmm_free(bin);
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+	if (!bin->reload) {
+#endif
+		mm_remove_app_heap_list(bin->uheap);
+		/* Free the RAM partition into which this app was loaded */
+		kmm_free((void *)bin->ramstart);
+		kmm_free(bin);
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+	}
+#endif
+
 	return ret;
 }
 

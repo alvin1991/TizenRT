@@ -58,7 +58,7 @@
  *******************************************************************************************/
 
 #include <sys/socket.h>
-
+#include <netinet/in.h>
 /*******************************************************************************************
  * Pre-Processor Definitions
  *******************************************************************************************/
@@ -174,6 +174,7 @@ struct lifreq {
 		uint8_t lifru_flags;	/* Interface flags */
 		struct mii_iotcl_notify_s llfru_mii_notify;	/* PHY event notification */
 		struct mii_ioctl_data_s lifru_mii_data;	/* MII request data */
+		uint8_t lifru_addr_type; /*  IPv6 Address type */
 	} lifr_ifru;
 };
 
@@ -192,6 +193,7 @@ struct lifreq {
 #define lifr_mii_reg_num      lifr_ifru.lifru_mii_data.reg_num	/* PHY register address */
 #define lifr_mii_val_in       lifr_ifru.lifru_mii_data.val_in	/* PHY input data */
 #define lifr_mii_val_out      lifr_ifru.lifru_mii_data.val_out	/* PHY output data */
+#define lifr_addr_type        lifr_ifru.lifru_addr_type	/* IPv6 Address type */
 
 #endif
 
@@ -265,10 +267,14 @@ struct netmon_sock {
 	struct netmon_sock *flink;
 	enum netmon_proto type;
 	enum netmon_state state;
-	ip_addr_t local_ip;
-	ip_addr_t remote_ip;
-	uint16_t local_port;
-	uint16_t remote_port;
+	union {
+		struct sockaddr_in ip;
+		struct sockaddr_in6 ip6;
+	} local;
+	union {
+		struct sockaddr_in ip;
+		struct sockaddr_in6 ip6;
+	} remote;
 	pid_t pid;
 	char  pid_name[CONFIG_TASK_NAME_SIZE];
 };

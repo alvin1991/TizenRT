@@ -71,11 +71,21 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define BINFMT_NALLOC 3
-
 /****************************************************************************
  * Public Types
  ****************************************************************************/
+enum {
+	ALLOC_TEXT,
+#ifdef CONFIG_BINFMT_CONSTRUCTORS
+	ALLOC_CTOR,
+	ALLOC_DTOR,
+#endif
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+	ALLOC_RO,
+	ALLOC_DATA,
+#endif
+	ALLOC_MAX
+};
 
 /* The type of one C++ constructor or destructor */
 
@@ -100,8 +110,26 @@ struct binary_s {
 #ifdef CONFIG_APP_BINARY_SEPARATION
 	struct mm_heap_s *uheap;	/* User heap pointer to allocate memory for sections */
 	uint32_t uheap_size;		/* The size of user heap */
+	uint32_t ramstart;		/* Start address of ram partition */
+	uint32_t ramsize;		/* Size of the RAM paritition */
+	uint32_t heapstart;		/* Start address of app heap area */
+	uint32_t datastart;		/* Start address of data section */
 #endif
 
+#if defined(CONFIG_SUPPORT_COMMON_BINARY) || defined(CONFIG_OPTIMIZE_APP_RELOAD_TIME)
+	size_t textsize;		/* Size of text section */
+#endif
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+	size_t rosize;			/* Size of ro section */
+	size_t datasize;		/* Size of data section */
+	uint32_t reload;		/* Indicate whether this binary will be reloaded */
+	uint32_t bssstart;		/* Start address of bss section */
+	size_t bsssize;			/* Size of bss section */
+	uint32_t data_backup;		/* Start address of copy of data section */
+#endif
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+	uint8_t islibrary;		/* Is this bin object containing a library */
+#endif
 #if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
 	FAR char *argbuffer;		/* Allocated argument list */
 	FAR char **argv;			/* Copy of argument list */
@@ -117,7 +145,7 @@ struct binary_s {
 
 	main_t entrypt;				/* Entry point into a program module */
 	FAR void *mapped;			/* Memory-mapped, address space */
-	FAR void *alloc[BINFMT_NALLOC];	/* Allocated address spaces */
+	FAR void *alloc[ALLOC_MAX];	/* Allocated address spaces */
 
 #ifdef CONFIG_BINFMT_CONSTRUCTORS
 	/* Constructors/destructors */
@@ -149,6 +177,15 @@ struct binary_s {
 	size_t filelen;                 /* Size of binary size, used only when underlying is MTD */
 	size_t offset;                  /* Offset of binary from partition start*/
 	uint8_t compression_type;		/* Binary Compression type */
+#ifdef CONFIG_BINARY_MANAGER
+	uint8_t binary_idx;             /* Index of binary in binary table */
+	uint32_t bin_ver;               /* version of binary */
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+	char bin_name[BIN_NAME_MAX];    /* Name of binary */
+#else
+	char *bin_name;                 /* Name of binary */
+#endif
+#endif
 
 	/* Unload module callback */
 
@@ -174,6 +211,11 @@ struct binfmt_s {
 /****************************************************************************
  * Public Data
  ****************************************************************************/
+
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+/* A binary data of common library */
+extern struct binary_s *g_lib_binp;
+#endif
 
 #if defined(__cplusplus)
 extern "C" {
@@ -273,7 +315,7 @@ int unload_module(FAR struct binary_s *bin);
  *
  ****************************************************************************/
 
-int exec_module(FAR const struct binary_s *bin);
+int exec_module(FAR struct binary_s *bin);
 
 /****************************************************************************
  * Name: exec

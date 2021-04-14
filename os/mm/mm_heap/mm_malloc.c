@@ -58,11 +58,19 @@
 
 #include <debug.h>
 
+#ifdef CONFIG_MM_ASSERT_ON_FAIL
+#include <assert.h>
+#ifdef CONFIG_SYSTEM_REBOOT_REASON
+#include <sys/prctl.h>
+#include <tinyara/reboot_reason.h>
+#endif
+#endif
 #include <tinyara/mm/mm.h>
 
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 #include  <tinyara/sched.h>
 #endif
+
 #include "mm_node.h"
 
 /****************************************************************************
@@ -145,7 +153,7 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
 	/* Search for a large enough chunk in the list of nodes.
 	 * This list is ordered by size in a descending order.
 	 * If this list does not have free nodes whose size is large enough
-	 * to accomodate the requested size, malloc() will fail due to no more space.
+	 * to accommodate the requested size, malloc() will fail due to no more space.
 	 */
 
 	node = heap->mm_nodelist[ndx].flink;
@@ -228,16 +236,21 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size)
 	 * to the SYSLOG.
 	 */
 
-#ifdef CONFIG_DEBUG_MM
 	if (!ret) {
+#if defined(CONFIG_MM_ASSERT_ON_FAIL) && defined(CONFIG_SYSTEM_REBOOT_REASON)
+		prctl(PR_REBOOT_REASON_WRITE, REBOOT_SYSTEM_MEMORYALLOCFAIL);
+#endif
 		mdbg("Allocation failed, size %u\n", size);
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-		heapinfo_parse(heap, HEAPINFO_DETAIL_ALL, HEAPINFO_PID_ALL);
+		heapinfo_parse_heap(heap, HEAPINFO_DETAIL_ALL, HEAPINFO_PID_ALL);
+#endif
+
+#ifdef CONFIG_MM_ASSERT_ON_FAIL
+		PANIC();
 #endif
 	} else {
 		mvdbg("Allocated %p, size %u\n", ret, size);
 	}
-#endif
 
 	return ret;
 }

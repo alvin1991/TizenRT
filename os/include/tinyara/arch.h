@@ -117,9 +117,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <sched.h>
+#ifdef CONFIG_ARMV8M_TRUSTZONE
+#include <tinyara/tz_context.h>
+#endif
 
 #include <arch/arch.h>
-
 /****************************************************************************
  * Pre-processor definitions
  ****************************************************************************/
@@ -387,6 +389,49 @@ FAR void *up_stack_frame(FAR struct tcb_s *tcb, size_t frame_size);
 
 void up_release_stack(FAR struct tcb_s *dtcb, uint8_t ttype);
 
+#ifdef CONFIG_ARMV8M_TRUSTZONE
+/****************************************************************************
+ * Name: up_init_secure_context
+ *
+ * Description:
+ *
+ *   Initializes the secure context management system.
+ *   A task must allocate and load a context before calling any
+ *   secure side function in the thread mode.
+ *
+ ****************************************************************************/
+
+void up_init_secure_context(void);
+
+/****************************************************************************
+ * Name: up_allocate_secure_context
+ *
+ * Description:
+ *    Allocates a context on the secure side.
+ *    It allocates an Opaque context handle if context is
+ *    successfully allocated, NULL otherwise
+ *
+ * Inputs:
+ *   size: Size of the stack to allocate on secure side.
+ *
+ ****************************************************************************/
+
+void up_allocate_secure_context(TZ_ModuleId_t size);
+
+/****************************************************************************
+ * Name: up_free_secure_context
+ *
+ * Description:
+ *   Frees the given context.
+ *
+ * Inputs:
+ *   handle: Secure context handle corresponding to the context to be freed
+ *
+ ****************************************************************************/
+
+void up_free_secure_context();
+#endif
+
 /****************************************************************************
  * Name: up_unblock_task
  *
@@ -434,6 +479,25 @@ void up_unblock_task(FAR struct tcb_s *tcb);
  ****************************************************************************/
 
 void up_block_task(FAR struct tcb_s *tcb, tstate_t task_state);
+
+/****************************************************************************
+ * Name: up_unblock_task_without_savereg
+ *
+ * Description:
+ *   Move the TCB to the ready-to-run list and Switch context to the context
+ *   of the task at the head of the ready to run list without saving old context.
+ *   If it is in interrupt context, it doesn't copy the current_regs into the OLD tcb.
+ *   If not, it calls up_fullcontextrestore to perform the user context switch.
+ *
+ * Inputs:
+ *   tcb: Refers to the tcb to be unblocked.  This tcb is
+ *     in one of the waiting tasks lists.  It must be moved to
+ *     the ready-to-run list and, if it is the highest priority
+ *     ready to run taks, executed.
+ *
+ ****************************************************************************/
+
+void up_unblock_task_without_savereg(struct tcb_s *tcb);
 
 /****************************************************************************
  * Name: up_release_pending
@@ -494,13 +558,10 @@ void up_reprioritize_rtr(FAR struct tcb_s *tcb, uint8_t priority);
  *   logic.  Interrupts will always be disabled when this
  *   function is called.
  *
- * Inputs:
- *   tcb: The TCB of the task that is yielding the resource
- *
  ****************************************************************************/
 
 #ifdef CONFIG_SCHED_YIELD_OPTIMIZATION
-void up_schedyield(FAR struct tcb_s *rtcb);
+void up_schedyield(void);
 #endif
 
 /****************************************************************************
@@ -685,41 +746,11 @@ void up_signal_handler(_sa_sigaction_t sighand, int signo, FAR siginfo_t *info, 
 
 /* Memory management ********************************************************/
 
-#if (CONFIG_MM_REGIONS > 1) || (defined(CONFIG_MM_KERNEL_HEAP) && (CONFIG_KMM_REGIONS > 1))
-void up_addregion(void);
+#if CONFIG_KMM_REGIONS > 1
+void up_add_kregion(void);
 #else
-#define up_addregion()
+#define up_add_kregion()
 #endif
-
-/****************************************************************************
- * Name: up_userspace
- *
- * Description:
- *   For the case of the separate user-/kernel-space build, perform whatever
- *   platform specific initialization of the user memory is required.
- *   Normally this just means initializing the user space .data and .bss
- *   segments.
- *
- ****************************************************************************/
-
-void up_userspace(void);
-
-/****************************************************************************
- * Name: up_allocate_heap
- *
- * Description:
- *   This function will be called to dynamically set aside the heap region.
- *
- *   For the kernel build (CONFIG_BUILD_PROTECTED=y) with both kernel- and
- *   user-space heaps (CONFIG_MM_KERNEL_HEAP=y), this function provides the
- *   size of the unprotected, user-space heap.
- *
- *   If a protected kernel-space heap is provided, the kernel heap must be
- *   allocated (and protected) by an analogous up_allocate_kheap().
- *
- ****************************************************************************/
-
-void up_allocate_heap(FAR void **heap_start, size_t *heap_size);
 
 /****************************************************************************
  * Name: up_allocate_kheap
@@ -1478,7 +1509,7 @@ void up_timer_initialize(void);
  *   any failure.
  *
  * Assumptions:
- *   Called from the the normal tasking context.  The implementation must
+ *   Called from the normal tasking context.  The implementation must
  *   provide whatever mutual exclusion is necessary for correct operation.
  *   This can include disabling interrupts in order to assure atomic register
  *   operations.
@@ -2039,7 +2070,7 @@ xcpt_t board_button_irq(int id, xcpt_t irqhandler);
  *      and SIOCSMIIREG ioctl calls** to communicate with the PHY,
  *      determine what network event took place (Link Up/Down?), and
  *      take the appropriate actions.
- *   d. It should then interact the the PHY to clear any pending
+ *   d. It should then interact the PHY to clear any pending
  *      interrupts, then re-enable the PHY interrupt.
  *
  *    * This is an OS internal interface and should not be used from
@@ -2157,6 +2188,18 @@ void up_wdog_keepalive(void);
  *
  ****************************************************************************/
 bool is_kernel_space(void *addr);
+
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+/****************************************************************************
+ * Name: is_common_library_space
+ *
+ * Description:
+ *   Check the address is in common library space or not
+ *
+ ****************************************************************************/
+bool is_common_library_space(void *addr);
+
+#endif
 #endif
 
 #undef EXTERN

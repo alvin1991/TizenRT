@@ -28,6 +28,9 @@
 #if !defined(CONFIG_DISABLE_POLL)
 #include <sys/select.h>
 #endif
+#ifdef CONFIG_SECURED_TASH
+#include <mbedtls/sha256.h>
+#endif
 #include <tinyara/ascii.h>
 #include "tash_internal.h"
 
@@ -40,7 +43,6 @@ enum tash_input_state_e {
 /* Following defines are fixed to avoid many configuration variables for TASH */
 #define TASH_TOKEN_MAX        (32)
 #ifdef CONFIG_TASH
-#define TASH_LINEBUFLEN       (128)
 #define TASH_TRY_MAXCNT       (5)
 #if !defined(CONFIG_DISABLE_POLL)
 #define SELECT_TIMEOUT_SECS   (6)
@@ -53,6 +55,36 @@ enum tash_input_state_e {
 #endif							/* CONFIG_TASH */
 
 static int tash_running = FALSE;
+
+#if TASH_MAX_STORE > 0
+static void tash_clear_line(int fd, int len)
+{
+	if (write(fd, (const void *)"\r", sizeof("\r")) <= 0) {
+		shdbg("TASH: echo failed (errno = %d)\n", get_errno());
+	}
+
+	for (int i = 0; i < len; ++i) {
+		if (write(fd, (const void *)" ", sizeof(" ")) <= 0) {
+			shdbg("TASH: echo failed (errno = %d)\n", get_errno());
+		}
+	}
+}
+#endif
+
+static void tash_print_cmd(int fd, char *cmd, int pos)
+{
+	if (write(fd, (const void *)"\r", sizeof("\r")) <= 0) {
+		shdbg("TASH: echo failed (errno = %d)\n", get_errno());
+	}
+
+	if (write(fd, (const void *)TASH_PROMPT, sizeof(TASH_PROMPT)) <= 0) {
+		shdbg("TASH: echo failed (errno = %d)\n", get_errno());
+	}
+
+	if (write(fd, (const void *)cmd, pos) <= 0) {
+		shdbg("TASH: echo failed (errno = %d)\n", get_errno());
+	}
+}
 
 static void tash_remove_char(char *char_pos)
 {
@@ -75,13 +107,26 @@ static void tash_remove_char(char *char_pos)
 /** @brief Read the input command
  *  @ingroup tash
  */
-static char *tash_read_input_line(int fd)
+char *tash_read_input_line(int fd)
 {
+	#define SKIP_NEXT_CHAR(n)    char_idx += (n)
+	#define PREV_CHAR            buffer[pos - 1]
+	#define CURR_CHAR            buffer[pos]
+	#define NEXT_CHAR            buffer[pos + 1]
+	#define NEXTNEXT_CHAR        buffer[pos + 2]
+
 	int bufsize = TASH_LINEBUFLEN;
 	int pos = 0;
-	int nbytes = 0;
-	int char_idx = 0;
+	int nbytes;
+	int char_idx;
 	bool is_tab_pressed = false;
+#if TASH_MAX_STORE > 0
+	bool is_esc_pressed = false;
+	bool prepare_direction_key = false;
+	bool is_direction_pressed = false;
+	char direction;
+	int prev_cmd_len = 0;
+#endif
 #if !defined(CONFIG_DISABLE_POLL)
 	fd_set tfd;
 	struct timeval stimeout;
@@ -112,8 +157,10 @@ static char *tash_read_input_line(int fd)
 			}
 
 			for (char_idx = 0; char_idx < nbytes; char_idx++) {
-				/* treat backspace and delete */
-				if ((buffer[pos] == ASCII_BS) || (buffer[pos] == ASCII_DEL)) {
+
+				if ((CURR_CHAR == ASCII_BS) || (CURR_CHAR == ASCII_DEL)) {
+					/* Back space or Del key - delete previous character */
+
 					int valid_char_pos = pos + 1;
 					if (pos > 0) {
 						pos--;
@@ -123,32 +170,95 @@ static char *tash_read_input_line(int fd)
 						}
 					}
 
-					if ((buffer[valid_char_pos] != 0x0) && (valid_char_pos < TASH_LINEBUFLEN)) {
-						memmove(&buffer[pos], &buffer[valid_char_pos], (bufsize - valid_char_pos));
+					if ((NEXT_CHAR != 0x0) && (valid_char_pos < TASH_LINEBUFLEN)) {
+						memmove(&CURR_CHAR, &NEXT_CHAR, (bufsize - valid_char_pos));
 					}
 					is_tab_pressed = false;
-				} else if (buffer[pos] == ASCII_TAB) {
+					is_esc_pressed = false;
+					prev_cmd_len = pos;
+				} else if (CURR_CHAR == ASCII_TAB) {
+					/* TAB key - Auto-complete the command functionality */
+
 					if (pos > 0 && tash_do_autocomplete(buffer, &pos, is_tab_pressed) == true) {
-						if (write(fd, (const void *)"\r", sizeof("\r")) <= 0) {
-							shdbg("TASH: echo failed (errno = %d)\n", get_errno());
-						}
-						if (write(fd, (const void *)TASH_PROMPT, sizeof(TASH_PROMPT)) <= 0) {
-							shdbg("TASH: echo failed (errno = %d)\n", get_errno());
-						}
-						if (write(fd, (const void *)buffer, pos) <= 0) {
-							shdbg("TASH: echo failed (errno = %d)\n", get_errno());
-						}
+						tash_print_cmd(fd, buffer, pos);
+						prev_cmd_len = pos;
 					}
 					is_tab_pressed = true;
-				} else {
-					if (buffer[pos] == ASCII_CR) {
-						buffer[pos] = ASCII_LF;
+					is_esc_pressed = false;
+				}
+#if TASH_MAX_STORE > 0
+				/* ASCII_ESC + ASCII_LBRACKET + ASCII_A is the UP key (direction)
+				 * ASCII_ESC + ASCII_LBRACKET + ASCII_B is the DOWN key (direction)
+				 */
+
+				else if (CURR_CHAR == ASCII_ESC) {
+					if (NEXT_CHAR == ASCII_LBRACKET) {
+						if ((NEXTNEXT_CHAR == ASCII_A) || (NEXTNEXT_CHAR == ASCII_B)) {
+							is_direction_pressed = true;
+							direction = NEXTNEXT_CHAR;
+							SKIP_NEXT_CHAR(2);
+						} else {
+							prepare_direction_key = true;
+						}
+						NEXT_CHAR = ASCII_NUL;
+
+					} else {
+						is_esc_pressed = true;
 					}
 
-					/* echo */
-					if (write(fd, &buffer[pos], 1) <= 0) {
+					CURR_CHAR = ASCII_NUL;
+					is_tab_pressed = false;
+
+				} else if (is_esc_pressed) {
+					if (CURR_CHAR == ASCII_LBRACKET) {
+						if ((NEXT_CHAR == ASCII_A) || (NEXT_CHAR == ASCII_B)) {
+							is_direction_pressed = true;
+							direction = NEXT_CHAR;
+							SKIP_NEXT_CHAR(1);
+						} else {
+							prepare_direction_key = true;
+						}
+						CURR_CHAR = ASCII_NUL;
+
+					} else {
+						shvdbg("TASH: Not support\n");
+					}
+
+					CURR_CHAR = ASCII_NUL;
+					is_tab_pressed = false;
+					is_esc_pressed = false;
+
+				} else if (prepare_direction_key) {
+					if ((CURR_CHAR == ASCII_A) || (CURR_CHAR == ASCII_B)) {
+						is_direction_pressed = true;
+						direction = CURR_CHAR;
+					} else {
+						shvdbg("TASH: Not support\n");
+					}
+
+					CURR_CHAR = ASCII_NUL;
+					is_tab_pressed = false;
+					is_esc_pressed = false;
+					prepare_direction_key = false;
+				}
+#endif
+				else {
+					if (CURR_CHAR == ASCII_CR) {
+						CURR_CHAR = ASCII_LF;
+					}
+
+#ifdef CONFIG_SECURED_TASH
+					if (tash_running || CURR_CHAR == ASCII_LF) {
+#endif
+						/* echo */
+						if (write(fd, &CURR_CHAR, 1) <= 0) {
+							shdbg("TASH: echo failed (errno = %d)\n", get_errno());
+						}
+#ifdef CONFIG_SECURED_TASH
+					} else if (write(fd, "*", 1) <= 0) {
 						shdbg("TASH: echo failed (errno = %d)\n", get_errno());
 					}
+#endif
 
 					pos++;
 					if (pos >= TASH_LINEBUFLEN) {
@@ -157,14 +267,28 @@ static char *tash_read_input_line(int fd)
 						return buffer;
 					}
 					is_tab_pressed = false;
+					is_esc_pressed = false;
+					prev_cmd_len = pos;
 				}
 			}
+
+#if TASH_MAX_STORE > 0
+			if (is_direction_pressed) {
+				if (tash_search_cmd(buffer, &pos, direction) == true) {
+					tash_clear_line(fd, sizeof(TASH_PROMPT) + prev_cmd_len);
+
+					tash_print_cmd(fd, buffer, pos);
+					prev_cmd_len = pos;
+				}
+				is_direction_pressed = false;
+			}
+#endif
 #if !defined(CONFIG_DISABLE_POLL)
 		}
 #endif
-	} while (buffer[pos - 1] != ASCII_LF);
+	} while (PREV_CHAR != ASCII_LF);
 
-	buffer[pos - 1] = ASCII_NUL;
+	PREV_CHAR = ASCII_NUL;
 	return buffer;
 }
 
@@ -209,6 +333,10 @@ static int tash_main(int argc, char *argv[])
 	if (fd < 0) {
 		exit(EXIT_FAILURE);
 	}
+
+#ifdef CONFIG_SECURED_TASH
+	tash_check_security(fd);
+#endif
 
 	tash_running = TRUE;
 
@@ -259,11 +387,24 @@ int tash_execute_cmdline(char *buff)
 	int argc;
 	char *argv[TASH_TOKEN_MAX];
 	enum tash_input_state_e state;
-	bool is_nextcmd = false;
+	bool has_nextcmd = false;
 	int ret = OK;
 
+#if TASH_MAX_STORE > 0
+	/* Find, verify the exclamation command and replace it to real command */
+
+	if (check_exclam_cmd(buff) == ERROR) {
+		*buff = ASCII_NUL;
+		return ERROR;
+	}
+
+	/* Save the input command into history command buffer */
+
+	tash_store_cmd(buff);
+#endif
+
 	do {
-		for (argc = 0, argv[argc] = NULL, is_nextcmd = false, state = IN_VOID; *buff && argc < TASH_TOKEN_MAX - 1 && is_nextcmd == false; buff++) {
+		for (argc = 0, argv[argc] = NULL, has_nextcmd = false, state = IN_VOID; *buff && argc < TASH_TOKEN_MAX - 1 && has_nextcmd == false; buff++) {
 			switch (state) {
 
 			case IN_VOID:
@@ -277,7 +418,7 @@ int tash_execute_cmdline(char *buff)
 				case ASCII_HASH:
 					/* following string is a comment, let's quit parsing */
 
-					is_nextcmd = false;
+					has_nextcmd = false;
 					*buff = ASCII_NUL;
 					*(buff + 1) = ASCII_NUL;
 					break;
@@ -289,11 +430,26 @@ int tash_execute_cmdline(char *buff)
 					argv[argc++] = buff + 1;
 					break;
 
-				case ASCII_LF:
 				case ASCII_SEMICOLON:
+					if (argc) {
+						/* Even semicolon comes in IN_VOID state, (argc != 0) means there is saved commands already.
+						 * Let's set the has_nextcmd true to check continuous command at next loop
+						 * and execute current as ASCII_LF.
+						 */
+
+						has_nextcmd = true;
+					} else {
+						/* Only semicolon comes without command.
+						 * Let's feedback the failure.
+						 */
+
+						printf("syntax error near unexpected token ';'\n");
+						return ERROR;
+					}
+
+				case ASCII_LF:
 					/* Command is finished, excute it */
 
-					is_nextcmd = true;
 					*buff = ASCII_NUL;
 					break;
 
@@ -344,11 +500,14 @@ int tash_execute_cmdline(char *buff)
 					buff--;
 					break;
 
-				case ASCII_LF:
 				case ASCII_SEMICOLON:
+					/* Set the has_nextcmd true to check contiuouse command and execute current as ASCII_LF */
+
+					has_nextcmd = true;
+
+				case ASCII_LF:
 					/* Command is finished, excute it */
 
-					is_nextcmd = true;
 					*buff = ASCII_NUL;
 					break;
 
@@ -377,7 +536,7 @@ int tash_execute_cmdline(char *buff)
 		if (argc > 0) {
 			ret = tash_execute_cmd(argv, argc);
 		}
-	} while (is_nextcmd == true);
+	} while (has_nextcmd == true);
 
 	return ret;
 }

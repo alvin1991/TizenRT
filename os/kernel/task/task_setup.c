@@ -65,6 +65,7 @@
 
 #include <tinyara/arch.h>
 #include <tinyara/ttrace.h>
+#include <tinyara/irq.h>
 #ifdef CONFIG_SCHED_CPULOAD
 #include <tinyara/clock.h>
 #endif
@@ -455,18 +456,27 @@ static int thread_schedsetup(FAR struct tcb_s *tcb, int priority, start_t start,
 #ifdef CONFIG_APP_BINARY_SEPARATION
 		/* Copy the parent task ram details to this task */
 		rtcb = this_task();
-		tcb->ram_start = rtcb->ram_start;
-		tcb->ram_size = rtcb->ram_size;
 		tcb->uspace = rtcb->uspace;
+		tcb->uheap = rtcb->uheap;
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+		tcb->app_id = rtcb->app_id;
+#endif
 
 		/* Copy the MPU register values from parent to child task */
-#ifdef CONFIG_ARMV7M_MPU
-		tcb->mpu_regs[REG_RNR] = rtcb->mpu_regs[REG_RNR];
-		tcb->mpu_regs[REG_RBAR] = rtcb->mpu_regs[REG_RBAR];
-		tcb->mpu_regs[REG_RASR] = rtcb->mpu_regs[REG_RASR];
+#ifdef CONFIG_ARM_MPU
+		int i = 0;
+#ifdef CONFIG_OPTIMIZE_APP_RELOAD_TIME
+		for (; i < MPU_REG_NUMBER * MPU_NUM_REGIONS; i += MPU_REG_NUMBER)
+#endif
+		{
+			tcb->mpu_regs[i + MPU_REG_RNR] = rtcb->mpu_regs[i + MPU_REG_RNR];
+			tcb->mpu_regs[i + MPU_REG_RBAR] = rtcb->mpu_regs[i + MPU_REG_RBAR];
+			tcb->mpu_regs[i + MPU_REG_RASR] = rtcb->mpu_regs[i + MPU_REG_RASR];
+		}
 #endif
 
 #endif
+		tcb->fin_data = NO_FIN_DATA;
 
 		/* Add the task to the inactive task list */
 

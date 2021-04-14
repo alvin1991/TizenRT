@@ -22,6 +22,10 @@
 
 STDK_INCLUDE_DIR = ./st-device-sdk-c/src/include
 STDK_SRC_DIR = ./st-device-sdk-c/src
+BILERPLATE_HEADER = $(STDK_INCLUDE_DIR)/certs/boilerplate.h
+ROOT_CA_FILE = $(STDK_SRC_DIR)/certs/root_ca.pem
+ROOT_CA_SOURCE = $(STDK_SRC_DIR)/iot_root_ca.c
+ROOT_CA_BACKUP_FILE = $(ROOT_CA_SOURCE).bak
 
 ASRCS =
 
@@ -51,34 +55,24 @@ CFLAGS += -I$(TOPDIR)/arch/xtensa/src/esp32
 CFLAGS += -I$(TOPDIR)/arch/xtensa/include/esp32
 CFLAGS += -I$(TOPDIR)/arch/xtensa/src/esp32/chip
 else
-CFLAGS += -I./tizenrt-wrapper/os
+CFLAGS += -I$(STDK_SRC_DIR)/port/os/tizenrt
 endif
-
-#################################################
-# certificate
-#################################################
-BILERPLATE_HEADER = $(STDK_INCLUDE_DIR)/certs/boilerplate.h
-ROOT_CA_FILE = $(STDK_SRC_DIR)/certs/root_ca.pem
-ROOT_CA_SOURCE = $(STDK_SRC_DIR)/iot_root_ca.c
-ROOT_CA_BACKUP_FILE = $(ROOT_CA_SOURCE).bak
-result := $(shell cat $(BILERPLATE_HEADER) > $(ROOT_CA_SOURCE); echo $$?;)
-ifneq ($(result),0)
-    $(error)
-endif
-result := $(shell xxd -i $(ROOT_CA_FILE) >> $(ROOT_CA_SOURCE); echo $$?;)
-ifneq ($(result),0)
-    $(error)
-endif
-$(shell sed -i.bak 's/_.*pem/st_root_ca/g' $(ROOT_CA_SOURCE))
-$(shell sed -i.bak 's/unsigned/const unsigned/g' $(ROOT_CA_SOURCE))
-$(shell rm $(ROOT_CA_BACKUP_FILE))
 
 #################################################
 # st-device-sdk-c
 #################################################
 CSRCS	:= $(wildcard $(STDK_SRC_DIR)/*.c)
-CSRCS	+= $(wildcard $(STDK_SRC_DIR)/crypto/*.c)
 
+ifeq ($(CONFIG_STDK_IOT_CORE_NET_MBEDTLS),y)
+	CSRCS += $(STDK_SRC_DIR)/port/net/mbedtls/iot_net_mbedtls.c
+	CFLAGS += -I$(STDK_SRC_DIR)/port/net/mbedtls
+else
+	CSRCS += $(STDK_SRC_DIR)/port/net/openssl/iot_net_openssl.c
+	CFLAGS += -I$(STDK_SRC_DIR)/port/net/openssl
+	CFLAGS += -DCONFIG_STDK_IOT_CORE_OS_SUPPORT_TIZENRT
+endif
+
+CSRCS	+= $(wildcard $(STDK_SRC_DIR)/crypto/*.c)
 ifeq ($(CONFIG_STDK_IOT_CORE_USE_MBEDTLS),y)
 CSRCS	+= $(wildcard $(STDK_SRC_DIR)/crypto/mbedtls/*.c)
 endif
@@ -95,15 +89,13 @@ endif
 #################################################
 CSRCS	+= $(wildcard $(STDK_SRC_DIR)/mqtt/client/*.c)
 CSRCS	+= $(wildcard $(STDK_SRC_DIR)/mqtt/packet/*.c)
-CSRCS	+= $(wildcard ./tizenrt-wrapper/bsp/*.c)
+CSRCS	+= $(wildcard $(STDK_SRC_DIR)/port/bsp/tizenrt/*.c)
 
-CSRCS	+= ./tizenrt-wrapper/os/iot_os_net_tizenrt.c
-CSRCS	+= ./tizenrt-wrapper/os/iot_os_util_tizenrt.c
+CSRCS	+= $(STDK_SRC_DIR)/port/os/tizenrt/iot_os_util_tizenrt.c
 ifneq ($(CONFIG_ARCH_BOARD_ESP32_FAMILY),y)
-CSRCS	+= ./tizenrt-wrapper/os/event_groups.c
-CSRCS	+= ./tizenrt-wrapper/os/queue_api.c
+CSRCS	+= $(STDK_SRC_DIR)/port/os/tizenrt/event_groups.c
+CSRCS	+= $(STDK_SRC_DIR)/port/os/tizenrt/queue_api.c
 endif
-
 
 VPATH += :st-device-sdk-c/src/
 
@@ -131,6 +123,16 @@ $(COBJS): %$(OBJEXT): %.c
 	$(call ARCHIVE, $(BIN), $(OBJS))
 	$(Q) touch .built
 
+#################################################
+# certificate
+#################################################
+context:
+	$(Q) cat $(BILERPLATE_HEADER) > $(ROOT_CA_SOURCE); echo $$?;
+	$(Q) xxd -i $(ROOT_CA_FILE) >> $(ROOT_CA_SOURCE); echo $$?;
+	$(Q) sed -i.bak 's/_.*pem/st_root_ca/g' $(ROOT_CA_SOURCE)
+	$(Q) sed -i.bak 's/unsigned/const unsigned/g' $(ROOT_CA_SOURCE)
+	$(Q) rm $(ROOT_CA_BACKUP_FILE);
+
 .depend: Makefile $(SRCS)
 	$(Q) $(MKDEP) $(DEPPATH) "$(CC)" -- $(CFLAGS) -- $(SRCS) >Make.dep
 	$(Q) touch $@
@@ -147,4 +149,3 @@ distclean: clean
 	$(call DELFILE, .depend)
 
 -include Make.dep
-

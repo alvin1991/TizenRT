@@ -275,4 +275,12 @@ void up_hal_timer_deinitialize(void)
   up_disable_irq(STM32L4_IRQ_TIM17);
 }
 
+void supress_hal_tick(void)
+{
+  HAL_NVIC_DisableIRQ(TIM1_TRG_COM_TIM17_IRQn);
+}
 
+void enable_hal_tick(void)
+{
+  HAL_NVIC_EnableIRQ(TIM1_TRG_COM_TIM17_IRQn);
+}

@@ -60,6 +60,9 @@
 #include <string.h>
 #include <errno.h>
 #include <debug.h>
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+#include <tinyara/hashmap.h>
+#endif
 
 #include <tinyara/binfmt/elf.h>
 #include <tinyara/binfmt/symtab.h>
@@ -80,6 +83,43 @@
  ****************************************************************************/
 
 /****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: elf_readstrtab
+ *
+ * Description:
+ *   Read the ELF string table into memory.
+ *
+ * Input Parameters:
+ *   loadinfo - Load state information
+ *
+ ****************************************************************************/
+int elf_readstrtab(FAR struct elf_loadinfo_s *loadinfo)
+{
+	int ret = OK;
+	FAR Elf32_Shdr *strtab = &loadinfo->shdr[loadinfo->strtabidx];
+
+	loadinfo->strtab = (uintptr_t)kmm_malloc(strtab->sh_size);
+
+	if (!loadinfo->strtab) {
+		berr("ERROR: Failed to allocate space for str table. Size = %u\n", strtab->sh_size);
+		return -ENOMEM;
+	}
+
+	ret = elf_read(loadinfo, (FAR uint8_t *)loadinfo->strtab, strtab->sh_size, strtab->sh_offset);
+	if (ret != OK) {
+		berr("ERROR: Failed to load string table into memory\n");
+		kmm_free((void *)loadinfo->strtab);
+		loadinfo->strtab = (uintptr_t)NULL;
+		return ret;
+	}
+
+	return ret;
+}
+
+/****************************************************************************
  * Name: elf_symname
  *
  * Description:
@@ -95,12 +135,8 @@
  *
  ****************************************************************************/
 
-static int elf_symname(FAR struct elf_loadinfo_s *loadinfo, FAR const Elf32_Sym *sym)
+int elf_symname(FAR struct elf_loadinfo_s *loadinfo, FAR const Elf32_Sym *sym)
 {
-	FAR uint8_t *buffer;
-	off_t offset;
-	size_t readlen;
-	size_t bytesread;
 	int ret;
 
 	/* Get the file offset to the string that is the name of the symbol.  The
@@ -112,61 +148,24 @@ static int elf_symname(FAR struct elf_loadinfo_s *loadinfo, FAR const Elf32_Sym 
 		return -ESRCH;
 	}
 
-	offset = loadinfo->shdr[loadinfo->strtabidx].sh_offset + sym->st_name;
+	if (!loadinfo->strtab) {
+		ret = elf_readstrtab(loadinfo);
 
-	/* Loop until we get the entire symbol name into memory */
-
-	bytesread = 0;
-
-	for (;;) {
-		/* Get the number of bytes to read */
-
-		readlen = loadinfo->buflen - bytesread;
-		if (offset + readlen > loadinfo->filelen) {
-			if (loadinfo->filelen <= offset) {
-				berr("At end of file\n");
-				return -EINVAL;
-			}
-
-			readlen = loadinfo->filelen - offset;
-		}
-
-		/* Read that number of bytes into the array */
-
-		buffer = &loadinfo->iobuffer[bytesread];
-		ret = elf_read(loadinfo, buffer, readlen, offset + bytesread);
-		if (ret < 0) {
-			berr("elf_read failed: %d\n", ret);
-			return ret;
-		}
-
-		bytesread += readlen;
-
-		/* Did we read the NUL terminator? */
-
-		if (memchr(buffer, '\0', readlen) != NULL) {
-			/* Yes, the buffer contains a NUL terminator. */
-
-			return OK;
-		}
-
-		/* No.. then we have to read more */
-
-		ret = elf_reallocbuffer(loadinfo, CONFIG_ELF_BUFFERINCR);
-		if (ret < 0) {
-			berr("elf_reallocbuffer failed: %d\n", ret);
+		if (ret != OK) {
+			berr("Error reading str table\n");
 			return ret;
 		}
 	}
 
-	/* We will not get here */
+	if (sym->st_name >= loadinfo->shdr[loadinfo->strtabidx].sh_size) {
+		berr("At end of strtab\n");
+		return -EINVAL;
+	}
+
+	loadinfo->iobuffer = (uint8_t *)(loadinfo->strtab + sym->st_name);
 
 	return OK;
 }
-
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
 
 /****************************************************************************
  * Name: elf_findsymtab
@@ -225,7 +224,7 @@ void elf_readsymtab(FAR struct elf_loadinfo_s *loadinfo)
 		return;
 	}
 
-	if (elf_read(loadinfo, loadinfo->symtab, symtab->sh_size, symtab->sh_offset) < 0) {
+	if (elf_read(loadinfo, (FAR uint8_t *)loadinfo->symtab, symtab->sh_size, symtab->sh_offset) < 0) {
 		berr("ERROR: Failed to load symbol table into memory\n");
 	}
 }
@@ -259,25 +258,11 @@ int elf_readsym(FAR struct elf_loadinfo_s *loadinfo, int index, FAR Elf32_Sym *s
 		return -EINVAL;
 	}
 
-	if (loadinfo->symtab) {
-		/* Get the file offset to the symbol table entry */
+	/* Get the file offset to the symbol table entry */
+	offset = symtab->sh_offset + sizeof(Elf32_Sym) * index;
 
-		offset = sizeof(Elf32_Sym) * index;
-
-		/* And, finally, read the symbol table entry into memory */
-
-		memcpy(sym, loadinfo->symtab + offset, sizeof(Elf32_Sym));
-		return OK;
-	} else {
-
-		/* Get the file offset to the symbol table entry */
-
-		offset = symtab->sh_offset + sizeof(Elf32_Sym) * index;
-
-		/* And, finally, read the symbol table entry into memory */
-
-		return elf_read(loadinfo, (FAR uint8_t *)sym, sizeof(Elf32_Sym), offset);
-	}
+	/* And, finally, read the symbol table entry into memory */
+	return elf_read(loadinfo, (FAR uint8_t *)sym, sizeof(Elf32_Sym), offset);
 }
 
 /****************************************************************************
@@ -305,7 +290,9 @@ int elf_readsym(FAR struct elf_loadinfo_s *loadinfo, int index, FAR Elf32_Sym *s
 
 int elf_symvalue(FAR struct elf_loadinfo_s *loadinfo, FAR Elf32_Sym *sym, FAR const struct symtab_s *exports, int nexports)
 {
+#if !defined(CONFIG_SUPPORT_COMMON_BINARY)
 	FAR const struct symtab_s *symbol;
+#endif
 	uintptr_t secbase;
 	int ret;
 
@@ -340,6 +327,20 @@ int elf_symvalue(FAR struct elf_loadinfo_s *loadinfo, FAR Elf32_Sym *sym, FAR co
 		}
 
 		/* Check if the base code exports a symbol of this name */
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+		if (!exports) {
+			berr("SHN_UNDEF: Exports not found\n");
+			return -ENOENT;
+		}
+
+		sym->st_value = (uint32_t)hashmap_get((struct hashmap_s *)exports, hashmap_get_hashval(loadinfo->iobuffer));
+
+		if (!sym->st_value) {
+			berr("SHN_UNDEF: Exported symbol \"%s\" not found\n", loadinfo->iobuffer);
+			return -ENOENT;
+		}
+
+#else
 
 #ifdef CONFIG_SYMTAB_ORDEREDBYNAME
 		symbol = symtab_findorderedbyname(exports, (FAR char *)loadinfo->iobuffer, nexports);
@@ -356,6 +357,9 @@ int elf_symvalue(FAR struct elf_loadinfo_s *loadinfo, FAR Elf32_Sym *sym, FAR co
 		binfo("SHN_UNDEF: name=%s %08x+%08x=%08x\n", loadinfo->iobuffer, sym->st_value, symbol->sym_value, sym->st_value + symbol->sym_value);
 
 		sym->st_value += (Elf32_Word)((uintptr_t)symbol->sym_value);
+#endif
+
+		sym->st_shndx = SHN_ABS;
 	}
 	break;
 
@@ -365,6 +369,7 @@ int elf_symvalue(FAR struct elf_loadinfo_s *loadinfo, FAR Elf32_Sym *sym, FAR co
 		binfo("Other: %08x+%08x=%08x\n", sym->st_value, secbase, sym->st_value + secbase);
 
 		sym->st_value += secbase;
+		sym->st_shndx = SHN_ABS;
 	}
 	break;
 	}

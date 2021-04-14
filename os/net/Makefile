@@ -116,6 +116,12 @@ endif
 
 endif
 
+ifeq ($(CONFIG_NET_LOCAL),y)
+include local/Make.defs
+include utils/Make.defs
+endif
+
+
 ASRCS		= $(SOCK_ASRCS) $(NETDEV_ASRCS) $(NET_ASRCS) $(TLS_ASRCS) $(LWIP_ASRCS) $(BLUETOOTH_ASRCS)
 AOBJS		= $(ASRCS:.S=$(OBJEXT))
 

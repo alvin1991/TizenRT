@@ -22,12 +22,18 @@
 #include <tinyara/config.h>
 #include <stdio.h>
 #include <debug.h>
-#include <errno.h>
-#include <debug.h>
-#include <fcntl.h>
 #include <string.h>
+#ifdef CONFIG_APP_BINARY_SEPARATION
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <dirent.h>
+#include <limits.h>
+#include <sys/stat.h>
+#include <sys/statfs.h>
+#endif
 
 #include <tinyara/binary_manager.h>
 
@@ -40,30 +46,14 @@
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
-/* Get index in binary table with binary id */
-int binary_manager_get_index_with_binid(int bin_id)
-{
-	int bin_idx;
-	uint32_t bin_count;
-
-	if (bin_id <= 0) {
-		bmdbg("Invalid bin_id %d\n", bin_id);
-		return ERROR;
-	}
-
-	bin_count = binary_manager_get_binary_count();
-
-	for (bin_idx = 1; bin_idx <= bin_count; bin_idx++) {
-		if (BIN_ID(bin_idx) == bin_id) {
-			bmvdbg("FIND binary %d idx = %d\n", bin_id, bin_idx);
-			return bin_idx;
-		}
-	}
-
-	return ERROR;
-}
-
-/* Get index in binary table with binary id */
+#ifdef CONFIG_APP_BINARY_SEPARATION
+/****************************************************************************
+ * Name: binary_manager_get_index_with_name
+ *
+ * Description:
+ *	 This function gets index in binary table with binary id.
+ *
+ ****************************************************************************/
 int binary_manager_get_index_with_name(char *bin_name)
 {
 	int bin_idx;
@@ -74,7 +64,7 @@ int binary_manager_get_index_with_name(char *bin_name)
 		return ERROR;
 	}
 
-	bin_count = binary_manager_get_binary_count();
+	bin_count = binary_manager_get_ucount();
 
 	for (bin_idx = 1; bin_idx <= bin_count; bin_idx++) {
 		if (!strncmp(BIN_NAME(bin_idx), bin_name, strlen(bin_name) + 1)) {
@@ -86,11 +76,118 @@ int binary_manager_get_index_with_name(char *bin_name)
 	return ERROR;
 }
 
-/* Get binary info with binary name */
-void binary_manager_get_info_with_name(int requester_pid, char *bin_name)
+int binary_manager_get_available_size(int bin_idx)
+{
+	DIR *dirp;
+	int size;
+	int name_len;
+	char *bin_name;
+	struct stat file_buf;
+	struct statfs fs_buf;
+	char filepath[BINARY_PATH_LEN];
+	char running_file[NAME_MAX];
+
+	snprintf(running_file, NAME_MAX, "%s_%d", BIN_NAME(bin_idx), BIN_LOADVER(bin_idx));
+	bin_name = BIN_NAME(bin_idx);
+	name_len = strlen(bin_name);
+	size = 0;
+
+	/* Stat for Available bytes per block */
+	if (stat(BINARY_MNT_PATH, &file_buf) != OK) {
+		bmdbg("Failed to stat %s, errno %d\n", BINARY_MNT_PATH, errno);
+		return ERROR;
+	}
+
+	/* Statfs for Free blocks */
+	if (statfs(BINARY_MNT_PATH, &fs_buf) != OK) {
+		bmdbg("Failed to stat fs %s, errno %d\n", BINARY_MNT_PATH, errno);
+		return ERROR;
+	}
+
+	/* Get available size on file system */
+	size = file_buf.st_blksize * fs_buf.f_bavail;
+
+	/* Open a directory for user binaries, BINARY_DIR_PATH */
+	dirp = opendir(BINARY_DIR_PATH);
+	if (dirp) {
+		/* Read each directory entry */
+		for (;;) {
+			struct dirent *entryp = readdir(dirp);
+			if (!entryp) {
+				/* Finished with this directory */
+				break;
+			}
+			/* Calculate size of old binary files to be removed when creating new file */
+			if (DIRENT_ISFILE(entryp->d_type) && !strncmp(entryp->d_name, bin_name, name_len) \
+				&& entryp->d_name[name_len] == '_' && strncmp(entryp->d_name, running_file, strlen(running_file))) {
+				snprintf(filepath, BINARY_PATH_LEN, "%s/%s", BINARY_DIR_PATH, entryp->d_name);
+				if (stat(filepath, &file_buf) == OK) {
+					bmvdbg("filepath %s size %d\n", filepath, file_buf.st_size);
+					size += file_buf.st_size;
+				}
+			}
+		}
+		closedir(dirp);
+	} else if (errno != ENOENT) {
+		bmdbg("Failed to open a directory, %s\n", BINARY_DIR_PATH);
+		return ERROR;
+	}
+	bmvdbg("Available size %d in fs \n", size);
+
+	return size;
+}
+
+/****************************************************************************
+ * Name: binary_manager_get_state_with_name
+ *
+ * Description:
+ *	 This function gets binary state with binary name.
+ *
+ ****************************************************************************/
+void binary_manager_get_state_with_name(int requester_pid, char *bin_name)
 {
 	int bin_idx;
 	uint32_t bin_count;
+	char q_name[BIN_PRIVMQ_LEN];
+	binmgr_getstate_response_t response_msg;
+
+	if (requester_pid < 0 || bin_name == NULL) {
+		bmdbg("Invalid data pid %d name %s\n", requester_pid, bin_name);
+		return;
+	}
+	snprintf(q_name, BIN_PRIVMQ_LEN, "%s%d", BINMGR_RESPONSE_MQ_PREFIX, requester_pid);
+
+	memset((void *)&response_msg, 0, sizeof(binmgr_getstate_response_t));
+	response_msg.result = BINMGR_NOT_FOUND;
+
+	bin_count = binary_manager_get_ucount();
+	for (bin_idx = 1; bin_idx <= bin_count; bin_idx++) {
+		if (!strncmp(BIN_NAME(bin_idx), bin_name, strlen(bin_name) + 1)) {
+			response_msg.result = BINMGR_OK;
+			response_msg.state = BIN_STATE(bin_idx);
+			break;
+		}
+	}
+
+	binary_manager_send_response(q_name, &response_msg, sizeof(binmgr_getstate_response_t));
+}
+#endif
+
+/****************************************************************************
+ * Name: binary_manager_get_info_with_name
+ *
+ * Description:
+ *	 This function gets binary info with binary name.
+ *
+ ****************************************************************************/
+void binary_manager_get_info_with_name(int requester_pid, char *bin_name)
+{
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	int size;
+	int bin_idx;
+	uint32_t bin_count;
+#endif
+	binmgr_kinfo_t *kerinfo;
 	char q_name[BIN_PRIVMQ_LEN];
 	binmgr_getinfo_response_t response_msg;
 
@@ -103,30 +200,56 @@ void binary_manager_get_info_with_name(int requester_pid, char *bin_name)
 	memset((void *)&response_msg, 0, sizeof(binmgr_getinfo_response_t));
 	response_msg.result = BINMGR_NOT_FOUND;
 
-	bin_count = binary_manager_get_binary_count();
-	for (bin_idx = 0; bin_idx <= bin_count; bin_idx++) {
-		if (!strncmp(BIN_NAME(bin_idx), bin_name, BIN_NAME_MAX)) {
-			response_msg.result = BINMGR_OK;
-			response_msg.data.inactive_partsize = BIN_PARTSIZE(bin_idx, (BIN_USEIDX(bin_idx) ^ 1));
-			strncpy(response_msg.data.name, BIN_NAME(bin_idx) , BIN_NAME_MAX);
-			strncpy(response_msg.data.active_ver, BIN_VER(bin_idx), BIN_VER_MAX);
-			snprintf(response_msg.data.active_dev, BINMGR_DEVNAME_LEN, BINMGR_DEVNAME_FMT, BIN_PARTNUM(bin_idx, BIN_USEIDX(bin_idx)));
-			if (BIN_PARTNUM(bin_idx, (BIN_USEIDX(bin_idx) ^ 1)) != -1) {
-				snprintf(response_msg.data.inactive_dev, BINMGR_DEVNAME_LEN, BINMGR_DEVNAME_FMT, BIN_PARTNUM(bin_idx, (BIN_USEIDX(bin_idx) ^ 1)));
+	if (!strncmp("kernel", bin_name, BIN_NAME_MAX)) {
+		kerinfo = binary_manager_get_kdata();
+		strncpy(response_msg.data.name, "kernel", BIN_NAME_MAX);
+		response_msg.data.version = kerinfo->version;
+		if (kerinfo->part_count > 1) {
+			response_msg.data.available_size = kerinfo->part_size[kerinfo->inuse_idx ^ 1];
+		} else {
+			response_msg.data.available_size = -1;
+		}
+		response_msg.result = BINMGR_OK;
+	}
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	else {
+		bin_count = binary_manager_get_ucount();
+		for (bin_idx = 1; bin_idx <= bin_count; bin_idx++) {
+			if (!strncmp(BIN_NAME(bin_idx), bin_name, BIN_NAME_MAX)) {
+				size = binary_manager_get_available_size(bin_idx);
+				if (size < 0) {
+					response_msg.result = BINMGR_OPERATION_FAIL;
+				} else {
+					response_msg.result = BINMGR_OK;
+					response_msg.data.available_size = size;
+					strncpy(response_msg.data.name, BIN_NAME(bin_idx) , BIN_NAME_MAX);
+					response_msg.data.version = (double)BIN_LOADVER(bin_idx);
+				}
+				break;
 			}
-			break;
 		}
 	}
-
+#endif
 	binary_manager_send_response(q_name, &response_msg, sizeof(binmgr_getinfo_response_t));
 }
 
-/* Get info of all registered binaries */
+/****************************************************************************
+ * Name: binary_manager_get_info_all
+ *
+ * Description:
+ *	 This function gets info of all registered binaries.
+ *
+ ****************************************************************************/
 void binary_manager_get_info_all(int requester_pid)
 {
-	int bin_idx;
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	int size;
+	int bin_idx;	
 	uint32_t bin_count;
+#endif
+	int result_idx;
 	char q_name[BIN_PRIVMQ_LEN];
+	binmgr_kinfo_t *kerinfo;
 	binmgr_getinfo_all_response_t response_msg;
 
 	if (requester_pid < 0) {
@@ -135,24 +258,42 @@ void binary_manager_get_info_all(int requester_pid)
 	}
 	snprintf(q_name, BIN_PRIVMQ_LEN, "%s%d", BINMGR_RESPONSE_MQ_PREFIX, requester_pid);
 
+	result_idx = 0;
 	memset((void *)&response_msg, 0, sizeof(binmgr_getinfo_all_response_t));
+	response_msg.result = BINMGR_OK;
 
-	bin_count = binary_manager_get_binary_count();
-	if (bin_count > 0) {
-		for (bin_idx = 0; bin_idx < bin_count + 1; bin_idx++) {
-			response_msg.data.bin_info[bin_idx].inactive_partsize = BIN_PARTSIZE(bin_idx, (BIN_USEIDX(bin_idx) ^ 1));
-			strncpy(response_msg.data.bin_info[bin_idx].name, BIN_NAME(bin_idx) , BIN_NAME_MAX);
-			strncpy(response_msg.data.bin_info[bin_idx].active_ver, BIN_VER(bin_idx), BIN_VER_MAX);
-			snprintf(response_msg.data.bin_info[bin_idx].active_dev, BINMGR_DEVNAME_LEN, BINMGR_DEVNAME_FMT, BIN_PARTNUM(bin_idx, BIN_USEIDX(bin_idx)));
-			if (BIN_PARTNUM(bin_idx, (BIN_USEIDX(bin_idx) ^ 1)) != -1) {
-				snprintf(response_msg.data.bin_info[bin_idx].inactive_dev, BINMGR_DEVNAME_LEN, BINMGR_DEVNAME_FMT, BIN_PARTNUM(bin_idx, (BIN_USEIDX(bin_idx) ^ 1)));
-			}
-		}
-		response_msg.data.bin_count = bin_count + 1;
-		response_msg.result = BINMGR_OK;
+	/* Get kernel data */
+	kerinfo = binary_manager_get_kdata();
+	strncpy(response_msg.data.bin_info[result_idx].name, "kernel", BIN_NAME_MAX);
+	response_msg.data.bin_info[result_idx].version = kerinfo->version;
+	if (kerinfo->part_count > 1) {
+		response_msg.data.bin_info[result_idx].available_size = kerinfo->part_size[kerinfo->inuse_idx ^ 1];
 	} else {
-		response_msg.result = BINMGR_NOT_FOUND;
+		response_msg.data.bin_info[result_idx].available_size = -1;
+	}
+	result_idx++;
+
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	/* User binaries data */
+	bin_count = binary_manager_get_ucount();
+	if (bin_count > 0) {
+		for (bin_idx = 1; bin_idx <= bin_count; bin_idx++) {
+			size = binary_manager_get_available_size(bin_idx);
+			if (size < 0) {
+				response_msg.result = BINMGR_OPERATION_FAIL;
+				break;
+			}
+			response_msg.result = BINMGR_OK;
+			response_msg.data.bin_info[result_idx].available_size = size;
+			strncpy(response_msg.data.bin_info[result_idx].name, BIN_NAME(bin_idx) , BIN_NAME_MAX);
+			response_msg.data.bin_info[result_idx].version = (double)BIN_LOADVER(bin_idx);
+			result_idx++;
+		}
 	}
 
+	if (response_msg.result == BINMGR_OK) {
+		response_msg.data.bin_count = bin_count + 1;
+	}
+#endif
 	binary_manager_send_response(q_name, &response_msg, sizeof(binmgr_getinfo_all_response_t));
 }

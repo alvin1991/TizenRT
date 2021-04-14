@@ -23,9 +23,12 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <netdb.h>
+#include <ifaddrs.h>
 #include <tinyara/kmalloc.h>
 #include <tinyara/netmgr/netdev_mgr.h>
+#include <net/if.h>
 #include "netdev_mgr_internal.h"
+#include "netdev_stats.h"
 #include "lwip/opt.h"
 #include "lwip/netif.h"
 #include "lwip/netdb.h"
@@ -36,6 +39,7 @@
 
 #if defined(CONFIG_NET_LWIP_DHCP)
 #define GET_NETIF_FROM_NETDEV(dev) (struct netif *)(((struct netdev_ops *)(dev)->ops)->nic)
+
 static struct netif *_netdev_dhcp_dev(FAR const char *intf)
 {
 	struct netif *cnif;
@@ -218,14 +222,14 @@ static struct addrinfo *_netdev_copy_addrinfo(struct addrinfo *src)
 		memcpy(dst->ai_addr, tmp->ai_addr, sizeof(struct sockaddr));
 
 		if (tmp->ai_canonname) {
-			dst->ai_canonname = (char *)kumm_malloc(sizeof(tmp->ai_canonname));
+			dst->ai_canonname = (char *)kumm_malloc(strlen(tmp->ai_canonname) + 1);
 			if (!dst->ai_canonname) {
 				ndbg("kumm_malloc failed\n");
 				kumm_free(dst->ai_addr);
 				kumm_free(dst);
 				break;
 			}
-			memcpy(dst->ai_canonname, tmp->ai_canonname, sizeof(tmp->ai_canonname));
+			memcpy(dst->ai_canonname, tmp->ai_canonname, strlen(tmp->ai_canonname) + 1);
 		} else {
 			dst->ai_canonname = NULL;
 		}
@@ -249,6 +253,14 @@ static int _netdev_free_addrinfo(struct addrinfo *ai)
 
 	while (ai != NULL) {
 		next = ai->ai_next;
+		if (ai->ai_addr) {
+			kumm_free(ai->ai_addr);
+			ai->ai_addr = NULL;
+		}
+		if (ai->ai_canonname) {
+			kumm_free(ai->ai_canonname);
+			ai->ai_canonname = NULL;
+		}
 		kumm_free(ai);
 		ai = next;
 	}
@@ -275,7 +287,8 @@ static int lwip_func_ioctl(int s, int cmd, void *arg)
 {
 	int ret = -EINVAL;
 	ndbg("Enter %d\n");
-	struct lwip_sock *sock = get_socket(s);
+
+	struct lwip_sock *sock = get_socket(s, getpid());
 	if (!sock) {
 		ret = -EBADF;
 		return ret;
@@ -301,6 +314,7 @@ static int lwip_func_ioctl(int s, int cmd, void *arg)
 			ret = -EINVAL;
 		} else {
 			req->ai_res = _netdev_copy_addrinfo(res);
+			lwip_freeaddrinfo(res);
 			ret = OK;
 		}
 		break;
@@ -418,6 +432,12 @@ static int lwip_func_ioctl(int s, int cmd, void *arg)
 	}
 #endif // CONFIG_LWIP_DHCPS
 #endif // CONFIG_NET_LWIP_DHCP
+	case GETNETSTATS: {
+		stats_display();
+		netstats_display();
+		ret = OK;
+		break;
+	}
 	default:
 		ndbg("Wrong request type: %d\n", req->type);
 		break;

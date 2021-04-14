@@ -58,7 +58,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <tinyara/mm/mm.h>
-#include "umm_heap.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -88,14 +87,23 @@
 
 struct mallinfo mallinfo(void)
 {
-	int heap_idx;
 	struct mallinfo info;
-#if CONFIG_MM_NHEAPS > 1
-	memset(&info, 0, sizeof(struct mallinfo));
+#if CONFIG_KMM_NHEAPS > 1
+	info.arena = 0;
+	info.fordblks = 0;
+	info.mxordblk = 0;
+	info.ordblks = 0;
+	info.uordblks = 0;
 #endif
-	for (heap_idx = 0; heap_idx < CONFIG_MM_NHEAPS; heap_idx++) {
-		mm_mallinfo(&USR_HEAP[heap_idx], &info);
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	/* When CONFIG_APP_BINARY_SEPARATION, user heap only can be single heap. */
+	mm_mallinfo(&BASE_HEAP[0], &info);
+#else
+	int heap_idx;
+	for (heap_idx = 0; heap_idx < CONFIG_KMM_NHEAPS; heap_idx++) {
+		mm_mallinfo(&BASE_HEAP[heap_idx], &info);
 	}
+#endif
 	return info;
 }
 
@@ -103,10 +111,27 @@ struct mallinfo mallinfo(void)
 
 int mallinfo(struct mallinfo *info)
 {
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	/* When CONFIG_APP_BINARY_SEPARATION, user heap only can be single heap. */
+	mm_mallinfo(&BASE_HEAP[0], info);
+#else
 	int heap_idx;
-	for (heap_idx = 0; heap_idx < CONFIG_MM_NHEAPS; heap_idx++) {
-		mm_mallinfo(&USR_HEAP[heap_idx], info);
+#if CONFIG_KMM_NHEAPS > 1
+	if (!info) {
+		mdbg("info is NULL\n");
+		return ERROR;
 	}
+
+	info->arena = 0;
+	info->fordblks = 0;
+	info->mxordblk = 0;
+	info->ordblks = 0;
+	info->uordblks = 0;
+#endif
+	for (heap_idx = 0; heap_idx < CONFIG_KMM_NHEAPS; heap_idx++) {
+		mm_mallinfo(&BASE_HEAP[heap_idx], info);
+	}
+#endif
 	return OK;
 }
 

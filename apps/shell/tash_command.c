@@ -18,15 +18,24 @@
 /// @file   tash_command.c
 /// @brief  functions to treate commands
 
-#include <pthread.h>
 #include <tinyara/config.h>
+
+#include <sys/types.h>
 #include <string.h>
 #include <stdio.h>
-#include <sys/types.h>
+#include <stdlib.h>
+#include <pthread.h>
+#ifdef CONFIG_TASH_REBOOT
 #include <sys/boardctl.h>
+#endif
+#include <tinyara/ascii.h>
 #include <apps/shell/tash.h>
 #ifdef CONFIG_BUILTIN_APPS
 #include <apps/builtin.h>
+#endif
+#ifdef CONFIG_SYSTEM_REBOOT_REASON
+#include <sys/prctl.h>
+#include <tinyara/reboot_reason.h>
 #endif
 #include "tash_internal.h"
 
@@ -36,11 +45,6 @@
 
 /* Following defines are fixed to avoid many configuration variables for TASH */
 #define TASH_CMD_MAXSTRLENGTH		(16) /* example: length of "ifconfig" command is 8 */
-#ifdef CONFIG_TASH_MAX_COMMANDS
-#define TASH_MAX_COMMANDS			CONFIG_TASH_MAX_COMMANDS
-#else
-#define TASH_MAX_COMMANDS			(32)
-#endif
 #ifdef CONFIG_TASH_CMDTASK_STACKSIZE
 #define TASH_CMDTASK_STACKSIZE		CONFIG_TASH_CMDTASK_STACKSIZE
 #else
@@ -53,6 +57,17 @@
 #endif
 #define TASH_CMDS_PER_LINE			(4)
 
+#if TASH_MAX_STORE > 0
+#define CMD_INDEX_UP(x)                                   \
+	do {                                                  \
+		((x) == TASH_MAX_STORE - 1) ? (x) = 0 : (x)++;    \
+	} while (0)
+
+#define CMD_INDEX_DOWN(x)                                 \
+	do {                                                  \
+		((x) == 0) ? (x) = TASH_MAX_STORE - 1 : (x)--;    \
+	} while (0)
+#endif
 /****************************************************************************
  * Global Variables
  ****************************************************************************/
@@ -73,7 +88,7 @@ struct tash_cmd_s {
 
 struct tash_cmd_info_s {
 	pthread_mutex_t tmutex;						/* Mutex for protection */
-	struct tash_cmd_s cmd[TASH_MAX_COMMANDS];
+	struct tash_cmd_s *cmd;
 	int count;									/* Number of TASH commands */
 };
 
@@ -82,9 +97,13 @@ struct tash_cmd_info_s {
  ********************************************************************************/
 
 static int tash_help(int argc, char **args);
+static int tash_clear(int argc, char **args);
 static int tash_exit(int argc, char **args);
-#if defined(CONFIG_BOARDCTL_RESET)
+#ifdef CONFIG_TASH_REBOOT
 static int tash_reboot(int argc, char **argv);
+#endif
+#if TASH_MAX_STORE   > 0
+static int tash_history(int argc, char **argv);
 #endif
 
 /****************************************************************************
@@ -97,6 +116,7 @@ static struct tash_cmd_info_s tash_cmds_info = {PTHREAD_MUTEX_INITIALIZER};
 const static tash_cmdlist_t tash_basic_cmds[] = {
 	{"exit",  tash_exit,   TASH_EXECMD_SYNC},
 	{"help",  tash_help,   TASH_EXECMD_SYNC},
+	{"clear",  tash_clear,   TASH_EXECMD_SYNC},
 #ifdef CONFIG_TASH_SCRIPT
 	{"sh",    tash_script, TASH_EXECMD_SYNC},
 #endif
@@ -106,11 +126,22 @@ const static tash_cmdlist_t tash_basic_cmds[] = {
 	{"usleep", tash_usleep, TASH_EXECMD_SYNC},
 #endif
 #endif
-#if defined(CONFIG_BOARDCTL_RESET)
+#ifdef CONFIG_TASH_REBOOT
 	{"reboot", tash_reboot, TASH_EXECMD_SYNC},
+#endif
+#if TASH_MAX_STORE > 0
+	{"history", tash_history, TASH_EXECMD_SYNC},
 #endif
 	{NULL,    NULL,        0}
 };
+
+#if TASH_MAX_STORE   > 0
+static char cmd_store[TASH_MAX_STORE][TASH_LINEBUFLEN];
+static char cmd_line[TASH_LINEBUFLEN];
+static int cmd_pos;
+static int cmd_head;
+static int cmd_tail;
+#endif
 
 /****************************************************************************
  * Private Functions
@@ -165,6 +196,15 @@ static int tash_help(int argc, char **args)
 	return 0;
 }
 
+/** @brief Clear the terminal screen and move cursor to top
+ *  @ingroup tash
+ */
+static int tash_clear(int argc, char **args)
+{
+	printf("\x1b[1;1H\x1b[2J\n");
+	return 0;
+}
+
 /** @brief TASH exit function. It cannot be re-launched.
  *  @ingroup tash
  */
@@ -172,10 +212,273 @@ static int tash_exit(int argc, char **args)
 {
 	printf("TASH: Good bye!!\n");
 	tash_stop();
+	free(tash_cmds_info.cmd);
 	exit(0);
 }
 
-#if defined(CONFIG_BOARDCTL_RESET)
+/** @brief Help function in TASH to list all available commands
+ *  @ingroup tash
+ */
+
+#if TASH_MAX_STORE > 0
+static int tash_history(int argc, char **args)
+{
+	int cmd_idx = 1;
+
+	printf("\t TASH command history\n");
+	printf("\t --------------------\n");
+
+	int head_idx = cmd_head;
+	while (head_idx != cmd_tail) {
+		printf(" %d \t %s\n", cmd_idx++, cmd_store[head_idx]);
+		CMD_INDEX_UP(head_idx);
+	}
+
+	return 0;
+}
+
+/**
+ * @brief      Get the command in the history list
+ * @details    Return the address of command buffer which is selected by the index in history list
+ * @param[in]  hist_idx The index in the history list
+ * @return     The address of command buffer selected on success, null on failure
+ */
+
+static char *tash_get_cmd_from_history(int hist_idx)
+{
+	int cmd_idx;
+
+	if (hist_idx < 0) {
+		printf("Not supported\n");
+		return NULL;
+	} else if (hist_idx >= TASH_MAX_STORE) {
+		printf("!%d: event not found\n", hist_idx);
+		return NULL;
+	}
+
+	/* Get the command index by adding given number from first command index in ring buffer */
+
+	cmd_idx = cmd_head + (hist_idx - 1);
+
+	/* Check overflow of buffer size */
+
+	if (cmd_idx >= TASH_MAX_STORE) {
+		cmd_idx -= TASH_MAX_STORE;
+	}
+
+	/* Check the given number is in a valid range */
+
+	if ((cmd_idx >= cmd_tail) && (cmd_head < cmd_tail)) {
+		printf("!%d: event not found\n", hist_idx);
+		return NULL;
+	}
+
+	/* Return the address of command buffer indexed */
+
+	return cmd_store[cmd_idx];
+}
+
+void tash_store_cmd(char *cmd)
+{
+	#define HISTPTR_TO_LAST  (cmd_pos = cmd_tail)
+
+	/* Clear temporary buffer */
+
+	cmd_line[0] = ASCII_NUL;
+
+	if (cmd == NULL || cmd[0] == ASCII_NUL) {
+		/* No valid command */
+
+		return;
+	}
+
+	if (cmd_head != cmd_tail) {
+		/* When there are saved commands in the history,
+		 * need to check whether this command is the same with the last command
+		 * to avoid duplicated saving.
+		 */
+
+		/* Get the last command index in the history  */
+
+		int prev = cmd_tail;
+		CMD_INDEX_DOWN(prev);
+
+		if (strncmp(cmd_store[prev], cmd, TASH_LINEBUFLEN) == 0) {
+			/* This is the same with the last!! Let's move the history command pointer to the last and exit. */
+
+			HISTPTR_TO_LAST;
+			return;
+		}
+	}
+
+	/* Save current command into the history list. */
+
+	strncpy(cmd_store[cmd_tail], cmd, TASH_LINEBUFLEN);
+	CMD_INDEX_UP(cmd_tail);
+
+	/* Move the head when the storage space is full. */
+
+	if (cmd_tail == cmd_head) {
+		CMD_INDEX_UP(cmd_head);
+	}
+
+	/* Move the history command pointer to the last. */
+
+	HISTPTR_TO_LAST;
+}
+
+bool tash_search_cmd(char *cmd, int *cmd_char_ptr, char direction)
+{
+	#define UP_KEY_PRESSED      (direction == ASCII_A)
+	#define DOWN_KEY_PRESSED    (direction == ASCII_B)
+	#define IS_HIST_NOCMD       (cmd_head == cmd_tail)
+	#define IS_HIST_AT_TOP      (cmd_pos == cmd_head)
+	#define IS_HIST_AT_BOT      (cmd_pos == cmd_tail)
+	#define HAS_USER_INPUT      (cmd_line[0] != ASCII_NUL)
+	#define COPY_CMD(dest, src, len) \
+		do { \
+			(len) = 0; \
+			while (((len) < TASH_LINEBUFLEN) && (src[(len)] != ASCII_NUL)) { \
+				dest[(len)] = src[(len)]; \
+				(len)++; \
+			} \
+			dest[(len) + 1] = ASCII_NUL; \
+		} while (0)
+	#define GET_HIST_CMD      COPY_CMD(cmd, cmd_store[cmd_pos], *cmd_char_ptr)
+	#define GET_USER_TEMPCMD  COPY_CMD(cmd, cmd_line, *cmd_char_ptr)
+	#define SAVE_USER_TEMPCMD \
+		do { \
+			cmd_line[(*cmd_char_ptr) + 1] = ASCII_NUL; \
+			while (*cmd_char_ptr >= 0) { \
+				cmd_line[*cmd_char_ptr] = cmd[*cmd_char_ptr]; \
+				(*cmd_char_ptr)--; \
+			} \
+		} while (0)
+
+	if (IS_HIST_NOCMD) {
+		/* There is no command executed, let's ignore. */
+
+		return false;
+	}
+
+	if (UP_KEY_PRESSED) {
+		/* UP key Pressed */
+
+		if (IS_HIST_AT_TOP) {
+			/* Already reached the top of history list (no more command at up direction), let's ignore. */
+
+			return false;
+		} else if (IS_HIST_AT_BOT && !HAS_USER_INPUT) {
+			/* First UP key, Save current user input command in temporary buffer */
+
+			SAVE_USER_TEMPCMD;
+		}
+		/* Get previous command index */
+
+		CMD_INDEX_DOWN(cmd_pos);
+		/* Copy it into cmd buffer */
+
+		GET_HIST_CMD;
+
+	} else if (DOWN_KEY_PRESSED) {
+		/* DOWN key Pressed */
+
+		if (IS_HIST_AT_BOT) {
+			/* Already reached the bottom of history list (no more command at down direction), let's ignore. */
+
+			return false;
+		}
+
+		/* Get next command index */
+
+		CMD_INDEX_UP(cmd_pos);
+		if (IS_HIST_AT_BOT) {
+			if (HAS_USER_INPUT) {
+				/* There is the user input command in temporary buffer, take it. */
+
+				GET_USER_TEMPCMD;
+			} else {
+				/* No command in temporary buffer, let's give empty */
+
+				cmd[0] = ASCII_NUL;
+				*cmd_char_ptr = 0;
+			}
+		} else {
+			/* Copy stored command into cmd buffer. */
+
+			GET_HIST_CMD;
+		}
+
+	} else {
+		shdbg("Not supported\n");
+		return false;
+	}
+
+	return true;
+}
+
+/**
+ * @brief     treat exclamation command
+ * @details   Find the exclamation command and replace it to real command into buffer
+ * @param[in] buff The pointer of user input string
+ * @return    OK on success, ERROR on failure
+ */
+
+int check_exclam_cmd(char *buff)
+{
+	int hist_idx;
+	int histcmd_size;
+	char *histcmd_ptr;
+	char *exclam_ptr;
+	char *exclam_nextptr;
+
+	/* Find the '!' in the input character */
+
+	while ((exclam_ptr = strchr(buff, ASCII_EXCLAM)) != NULL) {
+
+		exclam_nextptr = exclam_ptr + 1;
+		if (*exclam_nextptr == (char)ASCII_SPACE || *exclam_nextptr == (char)ASCII_LF || *exclam_nextptr == (char)ASCII_SEMICOLON || *exclam_nextptr == (char)ASCII_NUL) {
+			/* If the last character in buff is '!', it will be handled as character, not history command. */
+
+			buff = exclam_nextptr + 1;
+			continue;
+		}
+
+		/* Get the command from history according to the given index */
+
+		hist_idx = strtol(exclam_nextptr, &buff, 10);
+		if (hist_idx == 0) {
+			/* No number after '!'. */
+
+			printf("!%s: event not found\n", buff);
+			return ERROR;
+		}
+
+		histcmd_ptr = tash_get_cmd_from_history(hist_idx);
+		if (!histcmd_ptr) {
+			/* No command, Let's finish */
+
+			return ERROR;
+		} else {
+			histcmd_size = strlen(histcmd_ptr);
+			if (histcmd_size != (int)(buff - exclam_ptr)) {
+				/* "!number" does not have the same size as the command from the history list.
+				 * Let's adjust the location of next string to replace "!number" to real command string.
+				 */
+
+				memmove(exclam_ptr + histcmd_size, buff, strlen(buff));
+				buff = exclam_ptr + histcmd_size;
+			}
+			/* Replace "!number" to real command string in buff */
+
+			strncpy(exclam_ptr, histcmd_ptr, histcmd_size);
+		}
+	}
+	return OK;
+}
+#endif
+
+#ifdef CONFIG_TASH_REBOOT
 static int tash_reboot(int argc, char **argv)
 {
 	/*
@@ -183,6 +486,9 @@ static int tash_reboot(int argc, char **argv)
 	 * the board_reset() function returns, then it was not possible to
 	 * reset the board due to some constraints.
 	 */
+#ifdef CONFIG_SYSTEM_REBOOT_REASON
+	prctl(PR_REBOOT_REASON_WRITE, REBOOT_SYSTEM_USER_INTENDED);
+#endif
 	boardctl(BOARDIOC_RESET, EXIT_SUCCESS);
 
 	/*
@@ -191,7 +497,7 @@ static int tash_reboot(int argc, char **argv)
 	 */
 	return ERROR;
 }
-#endif /* CONFIG_BOARDCTL_RESET */
+#endif /* CONFIG_TASH_REBOOT */
 
 /** @brief Launch a task to run tash cmd asynchronously
  *  @ingroup tash
@@ -283,7 +589,12 @@ bool tash_do_autocomplete(char *cmd, int *pos, bool double_tab)
 	bool ret = false;
 	int found_cnt = 0;
 	int idx;
-	uint16_t matched[TASH_MAX_COMMANDS] = {0,};
+	uint16_t *matched;
+
+	matched = (uint16_t *)zalloc(tash_cmds_info.count);
+	if (!matched) {
+		return false;
+	}
 
 	/* lock mutex */
 	pthread_mutex_lock(&tash_cmds_info.tmutex);
@@ -318,6 +629,8 @@ bool tash_do_autocomplete(char *cmd, int *pos, bool double_tab)
 	}
 	/* unlock mutex */
 	pthread_mutex_unlock(&tash_cmds_info.tmutex);
+
+	free(matched);
 	return ret;
 }
 
@@ -339,24 +652,34 @@ bool tash_do_autocomplete(char *cmd, int *pos, bool double_tab)
 int tash_cmd_install(const char *str, TASH_CMD_CALLBACK cb, int thread_exec)
 {
 	int cmd_idx;
-	static int fail_cmd_count = 0;
-
-	if (TASH_MAX_COMMANDS == tash_cmds_info.count) {
-		printf("Allowed Max tash cmds: %d and Current tash cmd count: %d\n",
-				TASH_MAX_COMMANDS, tash_cmds_info.count + ++fail_cmd_count);
-		printf("Couldn't install cmd: (%s), Refer CONFIG_TASH_MAX_COMMANDS\n", str);
-		return -1;				/* MAX cmd count reached */
-	}
+	struct tash_cmd_s *new_cmd_buff;
 
 	/* Lock mutex */
 	pthread_mutex_lock(&tash_cmds_info.tmutex);
 
-	/* CHeck if cmd is already installed */
-	for (cmd_idx = 0; cmd_idx < tash_cmds_info.count; cmd_idx++) {
-		if (strncmp(str, tash_cmds_info.cmd[cmd_idx].str, TASH_CMD_MAXSTRLENGTH - 1) == 0) {
-			pthread_mutex_unlock(&tash_cmds_info.tmutex);
-			return -2;			/* CMD already installed */
+	/* allocate memory for new cmd */
+	if (tash_cmds_info.count == 0) {
+		new_cmd_buff = (struct tash_cmd_s *)malloc(sizeof(struct tash_cmd_s));
+	} else {
+		/* Is it new  */
+		for (cmd_idx = 0; cmd_idx < tash_cmds_info.count; cmd_idx++) {
+			if (strncmp(str, tash_cmds_info.cmd[cmd_idx].str, TASH_CMD_MAXSTRLENGTH - 1) == 0) {
+				/* Unlock mutex */
+				pthread_mutex_unlock(&tash_cmds_info.tmutex);
+				return -2;			/* CMD already installed */
+			}
 		}
+
+		new_cmd_buff = (struct tash_cmd_s *)realloc(tash_cmds_info.cmd, sizeof(struct tash_cmd_s) * (tash_cmds_info.count + 1));
+	}
+
+	if (new_cmd_buff) {
+		tash_cmds_info.cmd = new_cmd_buff;
+	} else {
+		printf("TASH: memory allocation fail to register (%s) command\n", str);
+		/* Unlock mutex */
+		pthread_mutex_unlock(&tash_cmds_info.tmutex);
+		return -1; /* Memory Allocation Fail for new command */
 	}
 
 	/* store command string - no need of explicit NULL termination */
@@ -367,6 +690,7 @@ int tash_cmd_install(const char *str, TASH_CMD_CALLBACK cb, int thread_exec)
 	tash_cmds_info.cmd[tash_cmds_info.count].exec_type = thread_exec;
 	/* Increment command count value */
 	tash_cmds_info.count++;
+	/* Unlock mutex */
 	pthread_mutex_unlock(&tash_cmds_info.tmutex);
 
 	is_sorted_list = FALSE;

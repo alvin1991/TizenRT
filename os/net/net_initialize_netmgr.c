@@ -21,6 +21,9 @@
 #include <net/if.h>
 #include <tinyara/lwnl/lwnl.h>
 #include "netmgr/netstack.h"
+#ifdef CONFIG_NET_LOCAL
+#include "utils/utils.h"
+#endif
 
 struct tr_netmgr {
 	void *dev;
@@ -61,22 +64,21 @@ void net_setup(void)
 	if (!g_netmgr.dev) {
 		g_netmgr.dev = (void *)kmm_zalloc(sizeof(struct lwnl_lowerhalf_s));
 		if (!g_netmgr.dev) {
-			ndbg("alloc dev fail\n");
+			ndbg("!!!alloc dev fail!!!\n");
 		}
 	}
 
 	res = lwnl_register((struct lwnl_lowerhalf_s *)g_netmgr.dev);
 	if (res < 0) {
-		ndbg("register device fail\n");
+		ndbg("!!!register device fail!!!\n");
 	}
 #endif
 
-	struct netstack *stk = get_netstack();
-	res = stk->ops->init(NULL);
+	struct netstack *stk = get_netstack(TR_SOCKET);
+	NETSTACK_CALL_RET(stk, init, (NULL), res);
 	if (res < 0) {
-		ndbg("initialize stack fail\n");
+		ndbg("!!!initialize stack fail!!!\n");
 	}
-
 	netdev_mgr_start();
 }
 
@@ -99,13 +101,18 @@ void net_setup(void)
 
 void net_initialize(void)
 {
+#ifdef CONFIG_NET_LOCAL
+	/* Initialize the local, "Unix domain" socket support */
+
+	local_initialize();
+#endif
+
 	/*  start network stack */
-	struct netstack *stk = get_netstack();
-	int res = stk->ops->start(NULL);
+	struct netstack *stk = get_netstack(TR_SOCKET);
+	int res = -1;
+	NETSTACK_CALL_RET(stk, start, (NULL), res);
 	if (res < 0) {
-		ndbg("start stack fail\n");
+		ndbg("!!!start stack fail!!!\n");
 	}
-
-
 	return;
 }

@@ -214,7 +214,7 @@ config MTD_SMART_ENABLE_CRC
 choice
 	prompt "CRC level selection"
 	depends on MTD_SMART_ENABLE_CRC
-	default SMART_CRC_8
+	default SMART_CRC_16
 	---help---
 		Select the level of CRC protection implemented in the SMART MTD layer.
 		Smaller CRC selection uses less overhead per logical sectors, but also has
@@ -229,6 +229,18 @@ config SMART_CRC_16
 
 endchoice
 
+config MTD_SMART_JOURNALING
+    bool "Enable filesystem journaling for smartfs"
+	default n
+   	select MTD_SMART_ENABLE_CRC
+	---help---
+		Enables logging of write operations on filesystem, so that in
+		case of power failure the filesystem can be brought to a stable
+		state with minimal data loss.
+		Enabling journaling will increase the delay in filesystem
+		operations, because it write journal data before it commit sector.
+		It uses CRC-16 so please enable SMART_CRC_16
+                
 config MTD_SMART_SECTOR_ERASE_DEBUG
 	bool "Track Erase Block erasure counts"
 	depends on MTD_SMART
@@ -278,4 +290,22 @@ config W25_SLOWREAD
 	default n
 
 endif # MTD_W25
+
+config MTD_JEDEC
+        bool "MTD driver for SPI-based JEDEC FLASH"
+        default n
+        select SPI
+        ---help---
+                Build support for generic MTD for jedec flash driver
+
+if MTD_JEDEC
+config JEDEC_SPI_MODE
+	int "SPI Mode"
+	default 0
+
+config JEDEC_SPI_FREQUENCY
+	int "SPI Frequency"
+	default 20000000
+endif
+
 endif # MTD

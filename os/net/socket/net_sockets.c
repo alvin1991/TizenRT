@@ -112,13 +112,12 @@
 
 void net_initlist(FAR struct socketlist *list)
 {
-	/* Initialize the list access mutex */
-
-	(void)sem_init(&list->sl_sem, 0, 1);
-	int i = 0;
-	for (; i < CONFIG_NSOCKET_DESCRIPTORS; i++) {
-		list->sl_sockets[i].conn = NULL;
+	for (int i = 0; i < CONFIG_NSOCKET_DESCRIPTORS; ++i) {
+		list->sl_sockets[i].sock = NULL;
 	}
+
+	/* Initialize the list access mutex */
+	(void)sem_init(&list->sl_sem, 0, 1);
 }
 
 /****************************************************************************
@@ -137,17 +136,37 @@ void net_initlist(FAR struct socketlist *list)
 
 void net_releaselist(FAR struct socketlist *list)
 {
-	DEBUGASSERT(list);
-	/* Close each open socket in the list. */
-	int idx = 0;
-	for (; idx < CONFIG_NSOCKET_DESCRIPTORS; idx++) {
-		if (list->sl_sockets[idx].conn) {
-			lwip_sock_close(list->sl_sockets[idx].conn);
+	int i;
+	int ret;
+	struct lwip_sock *psock;
+
+	for (i = 0; i < CONFIG_NSOCKET_DESCRIPTORS; ++i) {
+		if (list->sl_sockets[i].sock) {
+
+			psock = (struct lwip_sock *)list->sl_sockets[i].sock;
+
+			if (list->sl_sockets[i].s_crefs == 1) {
+				ret = lwip_sock_close(psock);
+				if (ret) {
+					ndbg("socket could not close properly\n");
+					list->sl_sockets[i].sock = NULL;
+					(void)sem_destroy(&list->sl_sem);
+					return;
+				}
+			}
+
+			else if (list->sl_sockets[i].s_crefs > 1) {
+				list->sl_sockets[i].s_crefs--;
+			}
+
+			else {
+				memset(&list->sl_sockets[i], 0, sizeof(struct socket));
+			}
 		}
+		list->sl_sockets[i].sock = NULL;
 	}
 
 	/* Destroy the semaphore */
-
 	(void)sem_destroy(&list->sl_sem);
 }
 

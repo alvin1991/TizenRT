@@ -335,14 +335,13 @@
 #define SYS_seekdir                    (__SYS_readdir + 2)
 #define SYS_stat                       (__SYS_readdir + 3)
 #define SYS_statfs                     (__SYS_readdir + 4)
-#define SYS_telldir                    (__SYS_readdir + 5)
 
 #if CONFIG_NFILE_STREAMS > 0
-#define SYS_fs_fdopen                  (__SYS_readdir + 6)
-#define SYS_sched_getstreams           (__SYS_readdir + 7)
-#define __SYS_mountpoint               (__SYS_readdir + 8)
+#define SYS_fs_fdopen                  (__SYS_readdir + 5)
+#define SYS_sched_getstreams           (__SYS_readdir + 6)
+#define __SYS_mountpoint               (__SYS_readdir + 7)
 #else
-#define __SYS_mountpoint               (__SYS_readdir + 6)
+#define __SYS_mountpoint               (__SYS_readdir + 5)
 #endif
 
 #if !defined(CONFIG_DISABLE_MOUNTPOINT)
@@ -353,7 +352,8 @@
 #define SYS_rmdir                      (__SYS_mountpoint + 4)
 #define SYS_umount                     (__SYS_mountpoint + 5)
 #define SYS_unlink                     (__SYS_mountpoint + 6)
-#define __SYS_shm                      (__SYS_mountpoint + 7)
+#define SYS_ftruncate                  (__SYS_mountpoint + 7)
+#define __SYS_shm                      (__SYS_mountpoint + 8)
 #else
 #define __SYS_shm                      __SYS_mountpoint
 #endif
@@ -398,23 +398,22 @@
 
 #ifndef CONFIG_PTHREAD_MUTEX_UNSAFE
 #define SYS_pthread_mutex_consistent   (__SYS_pthread + 18)
-#define __SYS_pthread_setcancelstate   (__SYS_pthread + 19)
+#define __SYS_pthread_setschedparam   (__SYS_pthread + 19)
 #else
-#define __SYS_pthread_setcancelstate   (__SYS_pthread + 18)
+#define __SYS_pthread_setschedparam   (__SYS_pthread + 18)
 #endif
 
-#define SYS_pthread_setcancelstate     (__SYS_pthread_setcancelstate + 0)
-#define SYS_pthread_setschedparam      (__SYS_pthread_setcancelstate + 1)
-#define SYS_pthread_setschedprio       (__SYS_pthread_setcancelstate + 2)
-#define SYS_pthread_setspecific        (__SYS_pthread_setcancelstate + 3)
+#define SYS_pthread_setschedparam      (__SYS_pthread_setschedparam + 0)
+#define SYS_pthread_setschedprio       (__SYS_pthread_setschedparam + 1)
+#define SYS_pthread_setspecific        (__SYS_pthread_setschedparam + 2)
 
 #ifndef CONFIG_DISABLE_SIGNAL
-#define SYS_pthread_cond_timedwait     (__SYS_pthread_setcancelstate + 4)
-#define SYS_pthread_kill               (__SYS_pthread_setcancelstate + 5)
-#define SYS_pthread_sigmask            (__SYS_pthread_setcancelstate + 6)
-#define __SYS_mqueue                   (__SYS_pthread_setcancelstate + 7)
+#define SYS_pthread_cond_timedwait     (__SYS_pthread_setschedparam + 3)
+#define SYS_pthread_kill               (__SYS_pthread_setschedparam + 4)
+#define SYS_pthread_sigmask            (__SYS_pthread_setschedparam + 5)
+#define __SYS_mqueue                   (__SYS_pthread_setschedparam + 6)
 #else
-#define __SYS_mqueue                   (__SYS_pthread_setcancelstate + 4)
+#define __SYS_mqueue                   (__SYS_pthread_setschedparam + 3)
 #endif
 
 #else
@@ -471,19 +470,16 @@
 #define SYS_setsockopt                 (__SYS_network + 12)
 #define SYS_shutdown                   (__SYS_network + 13)
 #define SYS_socket                     (__SYS_network + 14)
-#define SYS_nnetsocket                 (__SYS_network + 15)
+#define __SYS_prctl                    (__SYS_network + 15)
 #else
-#define SYS_nnetsocket                 __SYS_network
+#define __SYS_prctl                    __SYS_network
 #endif
 
-/* The following is defined only if CONFIG_TASK_NAME_SIZE > 0 */
+#define SYS_prctl                      __SYS_prctl
 
-#if CONFIG_TASK_NAME_SIZE > 0
-#define SYS_prctl                      (SYS_nnetsocket + 0)
-#define SYS_maxsyscall                 (SYS_nnetsocket + 1)
-#else
-#define SYS_maxsyscall                 SYS_nnetsocket
-#endif
+#define SYS_fin_wait                   SYS_prctl + 1
+
+#define SYS_maxsyscall                 (SYS_fin_wait + 1)
 
 /* Note that the reported number of system calls does *NOT* include the
  * architecture-specific system calls.  If the "real" total is required,

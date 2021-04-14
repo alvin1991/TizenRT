@@ -18,7 +18,7 @@
 /****************************************************************************
  * include/sys/un.h
  *
- *   Copyright (C) 2015 Gregory Nutt. All rights reserved.
+ *   Copyright (C) 2015, 2020 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -57,10 +57,7 @@
  * Included Files
  ****************************************************************************/
 
-/* The sys/un.> header defines the type sa_family_t as described in
- * sys/socket.h.
- */
-
+#include <tinyara/config.h>
 #include <sys/socket.h>
 
 /****************************************************************************
@@ -86,8 +83,13 @@
  */
 
 struct sockaddr_un {
-	sa_family_t sun_family;		/* AF_UNIX */
-	char sun_path[UNIX_PATH_MAX];	/* pathname */
+#ifdef CONFIG_NET_LWIP
+	u8_t sun_len;
+	u8_t sun_family; /* AF_UNIX */
+#else
+	sa_family_t sun_family; /* AF_UNIX */
+#endif
+	char sun_path[UNIX_PATH_MAX]; /* pathname */
 };
 
 /* There are three types of addresses:

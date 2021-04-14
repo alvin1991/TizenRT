@@ -1,7 +1,26 @@
+////////////////////////////////////////////////////////////////////
+//
+// Copyright 2019 Samsung Electronics All Rights Reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+// either express or implied. See the License for the specific
+// language governing permissions and limitations under the License.
+//
+////////////////////////////////////////////////////////////////////
+
 package smartfs_dump_parser.parts;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import javax.annotation.PostConstruct;
 
@@ -64,13 +83,13 @@ public class SectorViewer {
 						activeButton.setSelection(false);
 						return;
 					}
-					List<Sector> activeSectors = SmartFileSystem.getActiveSectors();
+					Map<Integer, Sector> activeSectors = SmartFileSystem.getActiveSectorsMap();
 					if (activeSectors == null) {
 						System.out.println("Active sectors are not classified yet..");
+					} else {
+						tableViewer.setInput(activeSectors.values());
+						tableViewer.refresh();
 					}
-					tableViewer.setInput(activeSectors);
-					tableViewer.refresh();
-
 					dirtyButton.setSelection(false);
 					cleanButton.setSelection(false);
 				}
@@ -87,13 +106,13 @@ public class SectorViewer {
 					dirtyButton.setSelection(false);
 					return;
 				}
-				List<Sector> dirtySectors = SmartFileSystem.getDirtySectors();
+				Map<Integer, Sector> dirtySectors = SmartFileSystem.getDirtySectorsMap();
 				if (dirtySectors == null) {
 					System.out.println("Dirty sectors are not classified yet..");
+				} else {
+					tableViewer.setInput(new ArrayList<Sector>(dirtySectors.values()));
+					tableViewer.refresh();
 				}
-				tableViewer.setInput(dirtySectors);
-				tableViewer.refresh();
-
 				activeButton.setSelection(false);
 				cleanButton.setSelection(false);
 			}
@@ -109,13 +128,13 @@ public class SectorViewer {
 					cleanButton.setSelection(false);
 					return;
 				}
-				List<Sector> cleanSectors = SmartFileSystem.getCleanSectors();
+				Map<Integer, Sector> cleanSectors = SmartFileSystem.getCleanSectorsMap();
 				if (cleanSectors == null) {
 					System.out.println("Clean sectors are not classified yet..");
+				} else {
+					tableViewer.setInput(new ArrayList<Sector>(cleanSectors.values()));
+					tableViewer.refresh();
 				}
-				tableViewer.setInput(cleanSectors);
-				tableViewer.refresh();
-
 				activeButton.setSelection(false);
 				dirtyButton.setSelection(false);
 			}
@@ -174,17 +193,17 @@ public class SectorViewer {
 		gridData.horizontalAlignment = GridData.FILL;
 		tableViewer.getControl().setLayoutData(gridData);
 	}
-	
+
 	private void createColumns(final Composite parent, final TableViewer viewer) {
 		String[] titles = new String[] { "Physical Sector #", "Sector #", "Seq. #", "CRC", "Status" };
-		int[] bounds = { 150, 80, 80, 80, 80 };
+		int[] bounds = { 128, 72, 60, 60, 60 };
 
 		// First column is for the physical sector number
 		TableViewerColumn col = createTableViewerColumn(titles[0], bounds[0], 0);
 		col.setLabelProvider(new ColumnLabelProvider() {
 			@Override
 			public String getText(Object element) {
-				Sector s = (Sector) element;
+				Sector s = (Sector)element;
 				return s.getHeader().getPhyicalSectorId() + "";
 			}
 		});
@@ -194,7 +213,7 @@ public class SectorViewer {
 		col.setLabelProvider(new ColumnLabelProvider() {
 			@Override
 			public String getText(Object element) {
-				Sector s = (Sector) element;
+				Sector s = (Sector)element;
 				return s.getHeader().getLogicalSectorId() + "";
 			}
 		});
@@ -204,7 +223,7 @@ public class SectorViewer {
 		col.setLabelProvider(new ColumnLabelProvider() {
 			@Override
 			public String getText(Object element) {
-				Sector s = (Sector) element;
+				Sector s = (Sector)element;
 				return s.getHeader().getSequenceNumber() + "";
 			}
 		});
@@ -214,7 +233,7 @@ public class SectorViewer {
 		col.setLabelProvider(new ColumnLabelProvider() {
 			@Override
 			public String getText(Object element) {
-				Sector s = (Sector) element;
+				Sector s = (Sector)element;
 				return s.getHeader().getCrc8() + "";
 			}
 		});
@@ -224,7 +243,7 @@ public class SectorViewer {
 		col.setLabelProvider(new ColumnLabelProvider() {
 			@Override
 			public String getText(Object element) {
-				Sector s = (Sector) element;
+				Sector s = (Sector)element;
 				return s.getHeader().getStatus() + "";
 			}
 		});

@@ -81,6 +81,9 @@ void board_initialize(void)
     stm32_spiinitialize();
 #endif
 
+	/* Initialize for flash access */
+	stm32l4_flash_initialize();
+
 #ifdef CONFIG_STM32L4_OTGFS
   /* Initialize USB if the 1) OTG FS controller is in the configuration and 2)
    * disabled, and 3) the weak function stm32_usbinitialize() has been brought
@@ -95,15 +98,16 @@ void board_initialize(void)
 #endif
 
 #ifdef CONFIG_STM32L4_LTDC
-    
     stm32_psram_initialize();
     printf("PSRAM init done\n");
     stm32_exflash_initialize();
     printf("NOR init done\n");
+#if 0	/* TODO */
     stm32l4_lcdinitialize();
     printf("LCD init done\n");
     stm32_touch_initialize();
     printf("TOUCH init done\n");
+#endif
 #endif
     //    stm32_dsi_refresh();
 }

@@ -125,7 +125,6 @@ struct servent_data {
 
 #if CONFIG_NET_LWIP
 
-//#ifndef CONFIG_NET_NETMGR
 typedef enum {
 	GETADDRINFO,
 	FREEADDRINFO,
@@ -137,6 +136,7 @@ typedef enum {
 	DHCPDSTART,
 	DHCPDSTOP,
 	DHCPDSTATUS,
+	GETNETSTATS,
 } req_type;
 
 /* To send a request to lwip stack by ioctl() use */
@@ -158,7 +158,7 @@ struct req_lwip_data {
 	u8_t num_dns;
 	ip_addr_t *dns_server;
 };
-//#endif // CONFIG_NET_NETMGR
+
 #endif
 
 /****************************************************************************

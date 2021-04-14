@@ -113,7 +113,7 @@ compute_ocd_commands_user()
 {
 	local commands=
 	ensure_file ${SMARTFS_BIN}
-	commands+="flash_write user ${SMARTFS_BIN} ${VERIFY}"
+	commands+="flash_write userfs ${SMARTFS_BIN} ${VERIFY}"
 	echo ${commands}
 }
 
@@ -152,6 +152,14 @@ compute_ocd_commands()
 				     commands+="flash_write ${part} ${OUTPUT_BINARY_PATH}/romfs.img ${VERIFY}; "
 				 else
 				     echo "#NOTE: ${OUTPUT_BINARY_PATH}/romfs.img is NOT present";
+				 fi
+				;;
+			zoneinfo)
+			         is_file_present ${OUTPUT_BINARY_PATH}/zoneinfo.img
+				 if [[ $? -eq 1 ]]; then
+				     commands+="flash_write ${part} ${OUTPUT_BINARY_PATH}/zoneinfo.img ${VERIFY}; "
+				 else
+				     echo "#NOTE: ${OUTPUT_BINARY_PATH}/zoneinfo.img is NOT present";
 				 fi
 				;;
 			loadparam)
@@ -201,7 +209,7 @@ download()
 	fi
 
 	# Make Openocd commands for parts
-	if [[ "$parts" == "user" ]]
+	if [[ "$parts" == "userfs" ]]
 	then
 		commands=$(compute_ocd_commands_user)
 		echo "ocd command to run: ${commands}"
@@ -229,7 +237,7 @@ erase()
 			PART_NAME=ota
 			;;
 		userfs)
-			PART_NAME=user
+			PART_NAME=userfs
 			;;
 		all)
 			PART_NAME=all
@@ -276,7 +284,7 @@ while test $# -gt 0; do
 		--verify)
 			VERIFY=verify
 			;;
-		all|os|apps|rom|bl1|bl2|sssfw|wlanfw|ota|micom|wifi|user)
+		all|os|apps|rom|bl1|bl2|sssfw|wlanfw|ota|micom|wifi|userfs|zoneinfo)
 			download ${1,,}
 			;;
 		usbrule)
